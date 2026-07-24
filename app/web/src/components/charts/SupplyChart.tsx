@@ -12,15 +12,106 @@ const DARK_BG = "#111118";
 const TEXT_COLOR = "#c8d0e0";
 const GRID_COLOR = "#2a2a38";
 
+function applySupplyOption(
+  instance: { setOption(o: unknown): void },
+  data: HistoryResponse
+) {
+  const rows = data.rows.filter((r) => r.v !== null);
+  if (rows.length === 0) return;
+
+  const xData = rows.map((r) => r.t.slice(0, 16).replace("T", " "));
+  const circ = rows.map((r) => r.v ?? 0);
+  const total = rows.map((r) => r.v2 ?? r.v ?? 0);
+  const labelInterval = Math.max(0, Math.floor(xData.length / 4) - 1);
+
+  instance.setOption({
+    backgroundColor: DARK_BG,
+    textStyle: { color: TEXT_COLOR, fontFamily: "Inter, sans-serif" },
+    legend: {
+      data: ["Circulating", "Total Emitted"],
+      textStyle: { color: TEXT_COLOR },
+      top: 4,
+      right: 8,
+      itemWidth: 12,
+      itemHeight: 8,
+      icon: "roundRect",
+    },
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "#1a1a24",
+      borderColor: GRID_COLOR,
+      textStyle: { color: TEXT_COLOR, fontSize: 12 },
+      formatter: (params: { seriesName: string; value: number }[]) => {
+        return params
+          .map(
+            (p) =>
+              `${p.seriesName}: ${Math.round(p.value).toLocaleString()} SLVR`
+          )
+          .join("<br/>");
+      },
+    },
+    grid: { left: 56, right: 16, top: 36, bottom: 28 },
+    xAxis: {
+      type: "category",
+      data: xData,
+      axisLine: { lineStyle: { color: GRID_COLOR } },
+      axisLabel: {
+        color: TEXT_COLOR,
+        fontSize: 10,
+        showMaxLabel: true,
+        showMinLabel: true,
+        interval: labelInterval,
+      },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      axisLine: { show: false },
+      splitLine: { lineStyle: { color: GRID_COLOR } },
+      axisLabel: {
+        color: TEXT_COLOR,
+        fontSize: 10,
+        formatter: (v: number) => `${(v / 1000).toFixed(0)}K`,
+      },
+    },
+    series: [
+      {
+        name: "Circulating",
+        type: "line",
+        data: circ,
+        smooth: true,
+        symbol: "none",
+        lineStyle: { color: "#c8b8f0", width: 2 },
+        areaStyle: { color: "#c8b8f0", opacity: 0.1 },
+        emphasis: { focus: "series" },
+      },
+      {
+        name: "Total Emitted",
+        type: "line",
+        data: total,
+        smooth: true,
+        symbol: "none",
+        lineStyle: { color: "#8888bb", width: 2 },
+        areaStyle: { color: "#8888bb", opacity: 0.07 },
+        emphasis: { focus: "series" },
+      },
+    ],
+  });
+}
+
 export default function SupplyChart({ data, isLoading }: SupplyChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartRef = useRef<any>(null);
+  // Keep a ref to the latest data so the init callback can apply it immediately
+  const dataRef = useRef<HistoryResponse | undefined>(data);
+  dataRef.current = data;
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     let echartsInstance: { dispose(): void; setOption(o: unknown): void; resize(): void } | null = null;
+    let ro: ResizeObserver | null = null;
 
     async function init() {
       const echarts = await import("echarts/core");
@@ -50,16 +141,19 @@ export default function SupplyChart({ data, isLoading }: SupplyChartProps) {
       };
       chartRef.current = echartsInstance;
 
-      const ro = new ResizeObserver(() => echartsInstance?.resize());
-      ro.observe(el);
+      // If data arrived before init completed, apply it now
+      if (dataRef.current) {
+        applySupplyOption(echartsInstance, dataRef.current);
+      }
 
-      return () => ro.disconnect();
+      ro = new ResizeObserver(() => echartsInstance?.resize());
+      ro.observe(el);
     }
 
-    const cleanup = init();
+    init();
 
     return () => {
-      cleanup.then((fn) => fn?.());
+      ro?.disconnect();
       if (chartRef.current) {
         chartRef.current.dispose();
         chartRef.current = null;
@@ -67,89 +161,10 @@ export default function SupplyChart({ data, isLoading }: SupplyChartProps) {
     };
   }, []);
 
+  // Update data when it changes (handles the normal case: data arrives after init)
   useEffect(() => {
-    if (!chartRef.current || !data?.rows) return;
-
-    const rows = data.rows.filter((r) => r.v !== null);
-    if (rows.length === 0) return;
-
-    const xData = rows.map((r) => r.t.slice(0, 16).replace("T", " "));
-    const circ = rows.map((r) => r.v ?? 0);
-    const total = rows.map((r) => r.v2 ?? r.v ?? 0);
-
-    chartRef.current.setOption({
-      backgroundColor: DARK_BG,
-      textStyle: { color: TEXT_COLOR, fontFamily: "Inter, sans-serif" },
-      legend: {
-        data: ["Circulating", "Total Emitted"],
-        textStyle: { color: TEXT_COLOR },
-        top: 4,
-        right: 8,
-        itemWidth: 12,
-        itemHeight: 8,
-        icon: "roundRect",
-      },
-      tooltip: {
-        trigger: "axis",
-        backgroundColor: "#1a1a24",
-        borderColor: GRID_COLOR,
-        textStyle: { color: TEXT_COLOR, fontSize: 12 },
-        formatter: (params: { seriesName: string; value: number }[]) => {
-          return params
-            .map(
-              (p) =>
-                `${p.seriesName}: ${Math.round(p.value).toLocaleString()} SLVR`
-            )
-            .join("<br/>");
-        },
-      },
-      grid: { left: 56, right: 16, top: 36, bottom: 28 },
-      xAxis: {
-        type: "category",
-        data: xData,
-        axisLine: { lineStyle: { color: GRID_COLOR } },
-        axisLabel: {
-          color: TEXT_COLOR,
-          fontSize: 10,
-          showMaxLabel: true,
-          showMinLabel: true,
-          interval: Math.floor(xData.length / 4),
-        },
-        splitLine: { show: false },
-      },
-      yAxis: {
-        type: "value",
-        axisLine: { show: false },
-        splitLine: { lineStyle: { color: GRID_COLOR } },
-        axisLabel: {
-          color: TEXT_COLOR,
-          fontSize: 10,
-          formatter: (v: number) => `${(v / 1000).toFixed(0)}K`,
-        },
-      },
-      series: [
-        {
-          name: "Circulating",
-          type: "line",
-          data: circ,
-          smooth: true,
-          symbol: "none",
-          lineStyle: { color: "#c8b8f0", width: 2 },
-          areaStyle: { color: "#c8b8f0", opacity: 0.1 },
-          emphasis: { focus: "series" },
-        },
-        {
-          name: "Total Emitted",
-          type: "line",
-          data: total,
-          smooth: true,
-          symbol: "none",
-          lineStyle: { color: "#8888bb", width: 2 },
-          areaStyle: { color: "#8888bb", opacity: 0.07 },
-          emphasis: { focus: "series" },
-        },
-      ],
-    });
+    if (!chartRef.current || !data) return;
+    applySupplyOption(chartRef.current, data);
   }, [data]);
 
   if (isLoading && !data) {

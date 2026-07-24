@@ -12,15 +12,102 @@ const DARK_BG = "#111118";
 const TEXT_COLOR = "#c8d0e0";
 const GRID_COLOR = "#2a2a38";
 
+function applyStakingOption(
+  instance: { setOption(o: unknown): void },
+  data: HistoryResponse
+) {
+  const rows = data.rows.filter((r) => r.v !== null);
+  if (rows.length === 0) return;
+
+  const xData = rows.map((r) => r.t.slice(0, 16).replace("T", " "));
+  const totalStaked = rows.map((r) => r.v ?? 0);
+  const permanent = rows.map((r) => r.v2 ?? 0);
+  const labelInterval = Math.max(0, Math.floor(xData.length / 4) - 1);
+
+  instance.setOption({
+    backgroundColor: DARK_BG,
+    textStyle: { color: TEXT_COLOR, fontFamily: "Inter, sans-serif" },
+    legend: {
+      data: ["Total Staked", "Permanently Locked"],
+      textStyle: { color: TEXT_COLOR },
+      top: 4,
+      right: 8,
+      itemWidth: 12,
+      itemHeight: 8,
+      icon: "roundRect",
+    },
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "#1a1a24",
+      borderColor: GRID_COLOR,
+      textStyle: { color: TEXT_COLOR, fontSize: 12 },
+      formatter: (params: { seriesName: string; value: number }[]) =>
+        params
+          .map(
+            (p) =>
+              `${p.seriesName}: ${Math.round(p.value).toLocaleString()} SLVR`
+          )
+          .join("<br/>"),
+    },
+    grid: { left: 56, right: 16, top: 36, bottom: 28 },
+    xAxis: {
+      type: "category",
+      data: xData,
+      axisLine: { lineStyle: { color: GRID_COLOR } },
+      axisLabel: {
+        color: TEXT_COLOR,
+        fontSize: 10,
+        interval: labelInterval,
+      },
+      splitLine: { show: false },
+    },
+    yAxis: {
+      type: "value",
+      axisLine: { show: false },
+      splitLine: { lineStyle: { color: GRID_COLOR } },
+      axisLabel: {
+        color: TEXT_COLOR,
+        fontSize: 10,
+        formatter: (v: number) =>
+          v >= 1000 ? `${(v / 1000).toFixed(1)}K` : String(v),
+      },
+    },
+    series: [
+      {
+        name: "Total Staked",
+        type: "line",
+        data: totalStaked,
+        smooth: true,
+        symbol: "none",
+        lineStyle: { color: "#f0d8a8", width: 2 },
+        areaStyle: { color: "#f0d8a8", opacity: 0.1 },
+      },
+      {
+        name: "Permanently Locked",
+        type: "line",
+        data: permanent,
+        smooth: true,
+        symbol: "none",
+        lineStyle: { color: "#b89850", width: 2, type: "dashed" },
+        areaStyle: { color: "#b89850", opacity: 0.08 },
+      },
+    ],
+  });
+}
+
 export default function StakingChart({ data, isLoading }: StakingChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartRef = useRef<any>(null);
+  // Keep a ref to the latest data so the init callback can apply it immediately
+  const dataRef = useRef<HistoryResponse | undefined>(data);
+  dataRef.current = data;
 
   useEffect(() => {
     if (!containerRef.current) return;
 
     let instance: { dispose(): void; setOption(o: unknown): void; resize(): void } | null = null;
+    let ro: ResizeObserver | null = null;
 
     async function init() {
       const echarts = await import("echarts/core");
@@ -47,14 +134,19 @@ export default function StakingChart({ data, isLoading }: StakingChartProps) {
       };
       chartRef.current = instance;
 
-      const ro = new ResizeObserver(() => instance?.resize());
+      // If data arrived before init completed, apply it now
+      if (dataRef.current) {
+        applyStakingOption(instance, dataRef.current);
+      }
+
+      ro = new ResizeObserver(() => instance?.resize());
       ro.observe(el);
-      return () => ro.disconnect();
     }
 
-    const cleanup = init();
+    init();
+
     return () => {
-      cleanup.then((fn) => fn?.());
+      ro?.disconnect();
       if (chartRef.current) {
         chartRef.current.dispose();
         chartRef.current = null;
@@ -62,85 +154,10 @@ export default function StakingChart({ data, isLoading }: StakingChartProps) {
     };
   }, []);
 
+  // Update data when it changes (handles the normal case: data arrives after init)
   useEffect(() => {
-    if (!chartRef.current || !data?.rows) return;
-
-    const rows = data.rows.filter((r) => r.v !== null);
-    if (rows.length === 0) return;
-
-    const xData = rows.map((r) => r.t.slice(0, 16).replace("T", " "));
-    const totalStaked = rows.map((r) => r.v ?? 0);
-    const permanent = rows.map((r) => r.v2 ?? 0);
-
-    chartRef.current.setOption({
-      backgroundColor: DARK_BG,
-      textStyle: { color: TEXT_COLOR, fontFamily: "Inter, sans-serif" },
-      legend: {
-        data: ["Total Staked", "Permanently Locked"],
-        textStyle: { color: TEXT_COLOR },
-        top: 4,
-        right: 8,
-        itemWidth: 12,
-        itemHeight: 8,
-        icon: "roundRect",
-      },
-      tooltip: {
-        trigger: "axis",
-        backgroundColor: "#1a1a24",
-        borderColor: GRID_COLOR,
-        textStyle: { color: TEXT_COLOR, fontSize: 12 },
-        formatter: (params: { seriesName: string; value: number }[]) =>
-          params
-            .map(
-              (p) =>
-                `${p.seriesName}: ${Math.round(p.value).toLocaleString()} SLVR`
-            )
-            .join("<br/>"),
-      },
-      grid: { left: 56, right: 16, top: 36, bottom: 28 },
-      xAxis: {
-        type: "category",
-        data: xData,
-        axisLine: { lineStyle: { color: GRID_COLOR } },
-        axisLabel: {
-          color: TEXT_COLOR,
-          fontSize: 10,
-          interval: Math.floor(xData.length / 4),
-        },
-        splitLine: { show: false },
-      },
-      yAxis: {
-        type: "value",
-        axisLine: { show: false },
-        splitLine: { lineStyle: { color: GRID_COLOR } },
-        axisLabel: {
-          color: TEXT_COLOR,
-          fontSize: 10,
-          formatter: (v: number) =>
-            v >= 1000 ? `${(v / 1000).toFixed(1)}K` : String(v),
-        },
-      },
-      series: [
-        {
-          name: "Total Staked",
-          type: "line",
-          data: totalStaked,
-          smooth: true,
-          symbol: "none",
-          lineStyle: { color: "#f0d8a8", width: 2 },
-          areaStyle: { color: "#f0d8a8", opacity: 0.1 },
-        },
-        {
-          name: "Permanently Locked",
-          type: "line",
-          data: permanent,
-          smooth: true,
-          symbol: "none",
-          lineStyle: { color: "#b89850", width: 2, type: "dashed" },
-          areaStyle: { color: "#b89850", opacity: 0.08 },
-        },
-      ],
-    });
+    if (!chartRef.current || !data) return;
+    applyStakingOption(chartRef.current, data);
   }, [data]);
 
   if (isLoading && !data) {

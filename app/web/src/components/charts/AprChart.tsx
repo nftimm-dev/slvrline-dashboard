@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { UTCTimestamp } from "lightweight-charts";
 import type { HistoryResponse } from "@/hooks/useHistory";
 
 interface AprChartProps {
@@ -13,12 +14,37 @@ const TEXT_COLOR = "#c8d0e0";
 const GRID_COLOR = "#2a2a38";
 const APR_COLOR = "#a8f0c8";
 
+function buildPoints(data: HistoryResponse | undefined) {
+  if (!data?.rows) return null;
+  const rows = data.rows.filter((r) => r.v !== null);
+  if (rows.length === 0) return null;
+  const points = rows.map((r) => ({
+    time: Math.floor(new Date(r.t).getTime() / 1000) as UTCTimestamp,
+    value: r.v as number,
+  }));
+  // Sort ascending — lightweight-charts requires monotonically increasing time
+  points.sort((a, b) => a.time - b.time);
+  // De-duplicate: drop any point whose time is <= the previous point's time
+  const deduped: typeof points = [];
+  let lastTime = -Infinity;
+  for (const p of points) {
+    if (p.time > lastTime) {
+      deduped.push(p);
+      lastTime = p.time;
+    }
+  }
+  return deduped.length > 0 ? deduped : null;
+}
+
 export default function AprChart({ data, isLoading }: AprChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chartRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const seriesRef = useRef<any>(null);
+  // Keep a ref to the latest data so the init callback can apply it immediately
+  const dataRef = useRef<HistoryResponse | undefined>(data);
+  dataRef.current = data;
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -81,6 +107,17 @@ export default function AprChart({ data, isLoading }: AprChartProps) {
       chartRef.current = chart;
       seriesRef.current = series;
 
+      // If data arrived before init completed, apply it now
+      const points = buildPoints(dataRef.current);
+      if (points) {
+        try {
+          series.setData(points);
+          chart.timeScale().fitContent();
+        } catch {
+          // ignore
+        }
+      }
+
       const ro = new ResizeObserver(() => {
         if (el) {
           chart.applyOptions({
@@ -104,21 +141,15 @@ export default function AprChart({ data, isLoading }: AprChartProps) {
     return () => cleanupFn?.();
   }, []);
 
-  // Update data when it changes
+  // Update data when it changes (handles the normal case: data arrives after init)
   useEffect(() => {
     const series = seriesRef.current;
-    if (!series || !data?.rows) return;
+    if (!series) return;
 
-    const rows = data.rows.filter((r) => r.v !== null);
-    if (rows.length === 0) return;
+    const points = buildPoints(data);
+    if (!points) return;
 
     try {
-      const points = rows.map((r) => ({
-        time: Math.floor(new Date(r.t).getTime() / 1000) as number,
-        value: r.v as number,
-      }));
-      // Sort ascending — lightweight-charts requires this
-      points.sort((a, b) => a.time - b.time);
       series.setData(points);
       chartRef.current?.timeScale().fitContent();
     } catch {
