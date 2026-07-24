@@ -11,6 +11,13 @@ import {
 } from "ponder:schema";
 import { CHAIN_ID, MIGRATION_ROUND, V1_ADDRESS, ZERO_ADDRESS } from "./lib/constants";
 
+// --- Phase 2 handler registrations ---
+import "./handlers/veEscrow";
+import "./handlers/veStaking";
+import "./handlers/lpStaking";
+import "./handlers/hub";
+import "./handlers/dex";
+
 // ── SLVR Token handlers ───────────────────────────────────────────────────────
 
 ponder.on("SlvrToken:Transfer", async ({ event, context }) => {

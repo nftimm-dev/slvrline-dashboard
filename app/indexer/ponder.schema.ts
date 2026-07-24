@@ -150,3 +150,195 @@ export const dividendFeeApplied = onchainTable(
   }),
   (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
 );
+
+// ── Phase 2: veSLVR Vote Escrow ───────────────────────────────────────────────
+
+// Per-tokenId lock state (mutable current state, updated in-place)
+// One row per tokenId; updated on LockIncreased, LockExtended, LockWithdrawn.
+export const veLock = onchainTable(
+  "ve_lock",
+  (t) => ({
+    chainId:          t.integer().notNull(),             // 4663
+    contractAddress:  t.hex().notNull(),                 // veNFT contract
+    tokenId:          t.bigint().notNull(),
+    user:             t.hex().notNull(),                 // owner at creation
+    currentAmount:    t.bigint().notNull(),              // raw SLVR (updated on increase/withdraw)
+    lockEnd:          t.bigint().notNull(),              // 0 if permanent; duration if time-locked
+    isPermanent:      t.boolean().notNull(),             // true = burn path, lockEnd == 0
+    isActive:         t.boolean().notNull(),             // false after LockWithdrawn
+    permanentTokenId: t.bigint(),                        // if converted: the new permanent tokenId
+    createdBlock:     t.bigint().notNull(),
+    createdTime:      t.integer().notNull(),
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.tokenId] }) })
+);
+
+// Append-only event log for veSLVR lock lifecycle events (for historical charts)
+export const veLockEvent = onchainTable(
+  "ve_lock_event",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    txHash:          t.hex().notNull(),
+    logIndex:        t.integer().notNull(),
+    blockNumber:     t.bigint().notNull(),
+    blockTime:       t.integer().notNull(),
+    tokenId:         t.bigint().notNull(),
+    eventType:       t.text().notNull(),                 // 'created'|'increased'|'extended'|'withdrawn'|'converted_to_permanent'
+    amountDelta:     t.bigint(),                         // positive on create/increase; negative on withdraw; null on extend
+    newLockEnd:      t.bigint(),                         // present on created, extended, increased
+    isPermanent:     t.boolean(),                        // set on 'created' and 'converted_to_permanent'
+    user:            t.hex(),                            // set on 'created' and 'withdrawn'
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
+);
+
+// ── Phase 2: veSLVR Staking ───────────────────────────────────────────────────
+
+// One row per staked tokenId; upserted on Staked/Unstaked.
+export const veStakePosition = onchainTable(
+  "ve_stake_position",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    tokenId:         t.bigint().notNull(),
+    user:            t.hex().notNull(),
+    weight:          t.bigint().notNull(),              // voting weight (NOT raw SLVR — see SLVR amount via ve_lock join)
+    isStaked:        t.boolean().notNull(),             // false after Unstaked
+    stakedBlock:     t.bigint().notNull(),
+    stakedTime:      t.integer().notNull(),
+    unstakedBlock:   t.bigint(),
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.tokenId] }) })
+);
+
+// ETH revenue distributed to veSLVR stakers (from Hub's StakersPaid events)
+export const veStakerRevenue = onchainTable(
+  "ve_staker_revenue",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),                 // Hub address
+    txHash:          t.hex().notNull(),
+    logIndex:        t.integer().notNull(),
+    blockNumber:     t.bigint().notNull(),
+    blockTime:       t.integer().notNull(),
+    gameId:          t.bigint().notNull(),
+    seq:             t.bigint().notNull(),
+    amount:          t.bigint().notNull(),              // ETH in wei
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
+);
+
+// ── Phase 2: LP Staking ──────────────────────────────────────────────────────
+
+// One row per user; upserted on Deposit/Withdraw.
+export const lpStakePosition = onchainTable(
+  "lp_stake_position",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    user:            t.hex().notNull(),
+    currentAmount:   t.bigint().notNull(),              // current LP tokens staked (updated in-place)
+    lastEventBlock:  t.bigint().notNull(),
+    lastEventTime:   t.integer().notNull(),
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.user] }) })
+);
+
+// Append-only LP staking events (for historical staking chart)
+export const lpStakeEvent = onchainTable(
+  "lp_stake_event",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    txHash:          t.hex().notNull(),
+    logIndex:        t.integer().notNull(),
+    blockNumber:     t.bigint().notNull(),
+    blockTime:       t.integer().notNull(),
+    user:            t.hex().notNull(),
+    eventType:       t.text().notNull(),                // 'deposit' | 'withdraw'
+    amount:          t.bigint().notNull(),              // LP token amount (always positive)
+    fee:             t.bigint(),                        // early-withdrawal fee (null for deposits)
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
+);
+
+// ── Phase 2: SLVR Hub ────────────────────────────────────────────────────────
+
+// Per-game emission events (supports Phase 3 mining runway and per-round attribution)
+// NOTE: Do NOT sum hub_reward_minted.amount alongside token_transfer emissions for total supply.
+// Hub RewardMinted and token Transfer(from=0x0) represent the same mint. Use token_transfer for totals.
+export const hubRewardMinted = onchainTable(
+  "hub_reward_minted",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    txHash:          t.hex().notNull(),
+    logIndex:        t.integer().notNull(),
+    blockNumber:     t.bigint().notNull(),
+    blockTime:       t.integer().notNull(),
+    gameId:          t.bigint().notNull(),
+    to:              t.hex().notNull(),                 // usually the lottery contract
+    amount:          t.bigint().notNull(),              // SLVR raw — do NOT sum alongside token_transfer emissions
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
+);
+
+// Hub emission rate changes (support mining runway chart)
+export const hubEmissionRate = onchainTable(
+  "hub_emission_rate",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),
+    txHash:          t.hex().notNull(),
+    logIndex:        t.integer().notNull(),
+    blockNumber:     t.bigint().notNull(),
+    blockTime:       t.integer().notNull(),
+    ratePerSec:      t.bigint().notNull(),              // SLVR per second (WAD-scaled)
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
+);
+
+// ── Phase 2: DEX — Uniswap V2 SLVR/WETH pair ────────────────────────────────
+
+// Reserve snapshots from Sync events (price and liquidity time series)
+// NOTE: Determine which reserve is SLVR and which is WETH via token0() call in Phase 3.
+// Store both reserves; Phase 3 reads token order from chain.
+export const v2Sync = onchainTable(
+  "v2_sync",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),                 // V2 pair address
+    txHash:          t.hex().notNull(),
+    logIndex:        t.integer().notNull(),
+    blockNumber:     t.bigint().notNull(),
+    blockTime:       t.integer().notNull(),
+    reserve0:        t.bigint().notNull(),              // uint112 — token0 reserve
+    reserve1:        t.bigint().notNull(),              // uint112 — token1 reserve
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
+);
+
+// ── Phase 2: DEX — Uniswap V4 PoolManager ───────────────────────────────────
+
+// Swap events filtered to the two SLVR pools (bytes32 pool IDs)
+export const v4Swap = onchainTable(
+  "v4_swap",
+  (t) => ({
+    chainId:         t.integer().notNull(),
+    contractAddress: t.hex().notNull(),                 // PoolManager address
+    txHash:          t.hex().notNull(),
+    logIndex:        t.integer().notNull(),
+    blockNumber:     t.bigint().notNull(),
+    blockTime:       t.integer().notNull(),
+    poolId:          t.hex().notNull(),                 // bytes32 pool ID (V4_SLVR_ETH_POOL_ID or V4_SLVR_USDG_POOL_ID)
+    sender:          t.hex().notNull(),
+    amount0:         t.bigint().notNull(),              // int128 — signed; negative = pool paid out token0
+    amount1:         t.bigint().notNull(),              // int128 — signed
+    sqrtPriceX96:    t.bigint().notNull(),              // uint160 — post-swap price (Q64.96 format)
+    liquidity:       t.bigint().notNull(),              // uint128
+    tick:            t.integer().notNull(),             // int24
+    fee:             t.integer().notNull(),             // uint24
+  }),
+  (t) => ({ pk: primaryKey({ columns: [t.chainId, t.contractAddress, t.txHash, t.logIndex] }) })
+);
