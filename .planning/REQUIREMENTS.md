@@ -91,32 +91,32 @@ Which phase covers each v1 requirement. Populated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DATA-01 | — | Pending |
-| DATA-02 | — | Pending |
-| DATA-03 | — | Pending |
-| DATA-04 | — | Pending |
-| DATA-05 | — | Pending |
-| VITALS-01 | — | Pending |
-| VITALS-02 | — | Pending |
-| DIV-01 | — | Pending |
-| DIV-02 | — | Pending |
-| SUP-01 | — | Pending |
-| SUP-02 | — | Pending |
-| SUP-03 | — | Pending |
-| STK-01 | — | Pending |
-| STK-02 | — | Pending |
-| MKT-01 | — | Pending |
-| MKT-02 | — | Pending |
-| LOT-01 | — | Pending |
-| LOT-02 | — | Pending |
-| UI-01 | — | Pending |
-| UI-02 | — | Pending |
+| DATA-01 | Phase 1 | Pending |
+| DATA-02 | Phase 1 | Pending |
+| DIV-01 | Phase 1 | Pending |
+| STK-01 | Phase 2 | Pending |
+| STK-02 | Phase 2 | Pending |
+| LOT-02 | Phase 2 | Pending |
+| SUP-01 | Phase 3 | Pending |
+| SUP-02 | Phase 3 | Pending |
+| SUP-03 | Phase 3 | Pending |
+| LOT-01 | Phase 3 | Pending |
+| MKT-01 | Phase 4 | Pending |
+| MKT-02 | Phase 4 | Pending |
+| DATA-03 | Phase 5 | Pending |
+| DATA-04 | Phase 5 | Pending |
+| DATA-05 | Phase 5 | Pending |
+| VITALS-01 | Phase 5 | Pending |
+| VITALS-02 | Phase 5 | Pending |
+| DIV-02 | Phase 5 | Pending |
+| UI-01 | Phase 5 | Pending |
+| UI-02 | Phase 5 | Pending |
 
 **Coverage:**
 - v1 requirements: 20 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 20 ⚠️
+- Mapped to phases: 20
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-07-24*
-*Last updated: 2026-07-24 after initial definition*
+*Last updated: 2026-07-24 after roadmap creation*
