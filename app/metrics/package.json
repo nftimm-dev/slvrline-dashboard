@@ -1,0 +1,20 @@
+{
+  "name": "@slvrline/metrics",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "run-once": "ts-node src/run.ts",
+    "backfill": "ts-node src/backfill.ts",
+    "dev": "ts-node --watch src/run.ts",
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "postgres": "^3.4.4",
+    "viem": "^2.26.7"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5",
+    "@types/node": "^20.11.0"
+  }
+}
