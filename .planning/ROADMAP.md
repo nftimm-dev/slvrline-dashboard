@@ -25,7 +25,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Depends on**: Nothing (first phase)
 **Requirements**: DATA-01, DATA-02, DIV-01
 **Success Criteria** (what must be TRUE):
-  1. A validation query against the indexed database returns zero round numbers that appear in events from both the old Grid Lottery (`0x284Eb4...`) and the new one (`0xB0Cc99...`) — the migration split is clean
+  1. Both Grid Lottery contracts are indexed in full, and a canonical round view (V1 for round <12,500, V2 for round ≥12,500) yields exactly one resolved record per round number from 0 → latest with no gaps and no double-counts — despite ~740 rounds (12,370–13,122) existing on BOTH contracts (parallel resolution, not a clean handoff — see `.planning/phases/phase-1/RESEARCH.md`). Rows keyed by `(chain_id, address, tx_hash, log_index)`
   2. A double-backfill test (same block range indexed twice) returns identical row counts with no duplicates — idempotency holds
   3. Running the same aggregation (e.g. total transfers) using raw NUMERIC amounts in BigInt matches the Goldsky subgraph total within rounding tolerance — no float precision loss
   4. The Dividends APR formula (numerator, denominator, annualization window) is documented in .planning/ with the specific contract events and field values it uses, derived from the Grid Lottery + SLVR Hub ABIs and cross-referenced against at least one known Goldsky subgraph value
@@ -36,7 +36,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Depends on**: Phase 1
 **Requirements**: STK-01, STK-02, LOT-02
 **Success Criteria** (what must be TRUE):
-  1. A query against indexed veSLVR event tables returns a total locked SLVR amount that matches the Vote Escrow NFT contract's on-chain `supply()` call within 0.01% (canonical source beats Transfer event sums)
+  1. Total locked SLVR is computed by summing per-tokenId `locks[].amount` from indexed veSLVR events (the veNFT exposes NO `supply()` getter) and reconciles within 0.01% against direct on-chain reads of a sampled set of locks; the computation correctly accounts for permanent locks, which BURN the underlying SLVR (see `.planning/phases/phase-1/RESEARCH.md`)
   2. Historical Grid Lottery activity across both contracts spans rounds from genesis through the current round with no gap at the round-12,500 boundary — a chart of bets-per-round shows a continuous series
   3. At least one V4 SLVR pool (bytes32 pool ID verified from PoolManager Initialize events on Blockscout) has indexed Swap events with correct token amounts stored as NUMERIC
   4. LP staking deposits and withdrawals are indexed with balances reconciling against the LP staking contract's on-chain `totalSupply()` call
