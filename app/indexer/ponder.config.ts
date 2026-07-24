@@ -1,15 +1,10 @@
 import { createConfig } from "ponder";
 import { SlvrTokenAbi } from "./abis/SlvrToken";
-
-// Current head at bootstrap time: 0x1193914 (18,430,228). startBlock is head − 50,000.
-// PLACEHOLDER: Replace with the real SLVR token deployment block in Phase 1 work.
-const START_BLOCK = 18_380_228;
+import { GridLotteryAbi } from "./abis/GridLottery";
 
 export default createConfig({
   database: {
     kind: "postgres",
-    // Falls back to DATABASE_URL env var automatically when connectionString is omitted.
-    // DATABASE_URL is set in .env.local (postgresql://timwilliams@localhost:5433/slvrline).
     connectionString: process.env.DATABASE_URL,
   },
   chains: {
@@ -23,7 +18,22 @@ export default createConfig({
       abi: SlvrTokenAbi,
       chain: "robinhoodChain",
       address: "0x791229E3EbD6CFdC3D8157f48722684173C29aD9",
-      startBlock: START_BLOCK,
+      startBlock: 5_574_774,
+      // No endBlock — index to head for live supply tracking
+    },
+    GridLotteryV1: {
+      abi: GridLotteryAbi,
+      chain: "robinhoodChain",
+      address: "0x284Eb4016305Fa7FbC162Fb68F27227271001c7f",
+      startBlock: 5_649_104,
+      endBlock: 17_440_150, // last-ever RoundResolved on V1 (optimization only, NOT the canonical boundary)
+    },
+    GridLotteryV2: {
+      abi: GridLotteryAbi,
+      chain: "robinhoodChain",
+      address: "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71",
+      startBlock: 16_764_101,
+      // No endBlock — active contract
     },
   },
 });
