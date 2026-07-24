@@ -33,3 +33,7 @@ out/
 # Logs
 *.log
 logfile
+
+# local artifacts
+*.png
+.playwright-mcp/

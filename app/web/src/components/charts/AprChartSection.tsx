@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import TimeRangeSelector from "./TimeRangeSelector";
-import AprChart from "./AprChart";
+import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
 
@@ -33,7 +33,7 @@ export default function AprChartSection() {
           backgroundColor: "var(--color-silver-900)",
         }}
       >
-        <AprChart data={data} isLoading={isLoading} />
+        <LineChartSvg data={data} isLoading={isLoading} series={[{ key: "v", color: "#5eead4" }]} />
       </div>
     </section>
   );

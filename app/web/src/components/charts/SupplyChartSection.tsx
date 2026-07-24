@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import TimeRangeSelector from "./TimeRangeSelector";
-import SupplyChart from "./SupplyChart";
+import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
 
@@ -33,7 +33,7 @@ export default function SupplyChartSection() {
           backgroundColor: "var(--color-silver-900)",
         }}
       >
-        <SupplyChart data={data} isLoading={isLoading} />
+        <LineChartSvg data={data} isLoading={isLoading} series={[{ key: "v", color: "#c8b8f0" }, { key: "v2", color: "#8888bb" }]} />
       </div>
     </section>
   );

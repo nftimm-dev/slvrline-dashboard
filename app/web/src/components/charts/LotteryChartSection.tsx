@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import TimeRangeSelector from "./TimeRangeSelector";
-import LotteryChart from "./LotteryChart";
+import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
 
@@ -33,7 +33,7 @@ export default function LotteryChartSection() {
           backgroundColor: "var(--color-silver-900)",
         }}
       >
-        <LotteryChart data={data} isLoading={isLoading} />
+        <LineChartSvg data={data} isLoading={isLoading} series={[{ key: "v", color: "#f0c674" }]} />
       </div>
     </section>
   );
