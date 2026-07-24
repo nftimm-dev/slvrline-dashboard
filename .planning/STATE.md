@@ -11,10 +11,10 @@ See: .planning/PROJECT.md (updated 2026-07-24)
 
 Phase: 1 of 5 (Indexer Foundation)
 Plan: 0 of TBD in current phase
-Status: AUTONOMOUS OVERNIGHT BUILD in progress (all 5 phases, YOLO, no push/deploy)
-Last activity: 2026-07-24 23:10 — Env verified (RPC/subgraph/Blockscout/Dexscreener reachable; contracts verified on Blockscout). Phase 1 bootstrap + contract research underway. See .planning/OVERNIGHT_LOG.md.
+Status: AUTONOMOUS OVERNIGHT BUILD complete — all 5 phases built, committed, and browser-verified. MVP live at localhost:3000. See .planning/OVERNIGHT_LOG.md "FINAL STATUS".
+Last activity: 2026-07-25 02:45 — Full stack working on real data (archival-metrics approach; full event backfill deferred — RPC-bound). Servers + metrics refresh loop left running.
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] Build complete (metrics via archival reads; full event backfill optional/deferred)
 
 ## Performance Metrics
 
