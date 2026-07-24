@@ -1,7 +1,7 @@
 /**
- * Circulating supply computation.
+ * Circulating supply computation — archival eth_call.
  *
- * circulating_supply = totalSupply() − excluded_balances
+ * circulating_supply = totalSupply(block) − excluded_balances(block)
  *
  * Exclusions (eth_call balanceOf per address):
  *   - Team Vesting    0xFAfcBd4D09C096Eb06Aa2256C7A65CEAB2db39F5
@@ -11,140 +11,102 @@
  * NOTE: Permanent locks are NOT subtracted — they are already burned from totalSupply()
  * per RESEARCH.md §5. Do not double-subtract.
  *
- * burnedRaw (from token_burn events) is stored for display only, not subtracted from
- * circulating supply — burns are already reflected in totalSupply().
+ * Cross-check: getCirculatingSupply() is called for reference — it uses the same
+ * exclusion list internally on the contract side.
  *
- * Cross-check: getCirculatingSupply() is called as a reference; divergence is logged.
+ * Selectors (Ethereum keccak256):
+ *   totalSupply()       = 0x18160ddd
+ *   balanceOf(address)  = 0x70a08231
+ *   getCirculatingSupply() = 0x2b112e49
  */
 
-import { type PublicClient } from "viem";
-import { sql } from "../db";
 import {
   SLVR_TOKEN,
+  SLVR_CAP,
   EXCLUDED_ADDRESSES,
   AUDIT_ADDRESSES,
 } from "../constants";
+import { archivalCall, decodeUint256 } from "../rpc";
 
-// Minimal ABI fragments needed
-const ERC20_ABI = [
-  {
-    name: "totalSupply",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    name: "balanceOf",
-    type: "function",
-    stateMutability: "view",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ type: "uint256" }],
-  },
-  {
-    name: "getCirculatingSupply",
-    type: "function",
-    stateMutability: "view",
-    inputs: [],
-    outputs: [{ type: "uint256" }],
-  },
-] as const;
+const TOTAL_SUPPLY_SEL = "0x18160ddd";
+const BALANCE_OF_SEL = "0x70a08231";
+const GET_CIRCULATING_SEL = "0x2b112e49";
+
+// Encode balanceOf(address) call data
+function encodeBalanceOf(address: string): string {
+  // Pad address to 32 bytes
+  const addr = address.toLowerCase().replace("0x", "").padStart(64, "0");
+  return BALANCE_OF_SEL + addr;
+}
 
 export type SupplyResult = {
   totalSupplyRaw: bigint;
-  burnedRaw: bigint;
   excludedRaw: bigint;
   circulatingRaw: bigint;
   circulatingHuman: number;
   totalHuman: number;
-  burnedHuman: number;
   excludedBalances: Record<string, bigint>;
   onChainCirculatingRaw: bigint | null;
-  permanentLockedNote: string;
   deployerBalance: bigint;
+  block: bigint;
 };
 
-export async function computeSupply(
-  asOfTime: Date | undefined,
-  viemClient: PublicClient
-): Promise<SupplyResult> {
-  const tEpoch = asOfTime ? Math.floor(asOfTime.getTime() / 1000) : Math.floor(Date.now() / 1000);
+export async function computeSupply(block: bigint): Promise<SupplyResult> {
+  // 1. totalSupply at given block
+  const totalSupplyHex = await archivalCall(SLVR_TOKEN, TOTAL_SUPPLY_SEL, block);
+  const totalSupplyRaw = decodeUint256(totalSupplyHex);
 
-  // 1. totalSupply via eth_call (live ground truth)
-  const totalSupplyRaw = await viemClient.readContract({
-    address: SLVR_TOKEN,
-    abi: ERC20_ABI,
-    functionName: "totalSupply",
-  }) as bigint;
-
-  // 2. Cumulative burns from TokensBurned events (for display; already in totalSupply)
-  const [burnRow] = await sql<[{ total: string | null }]>`
-    SELECT SUM(amount)::text AS total
-    FROM slvr.token_burn
-    WHERE block_time <= ${tEpoch}
-  `;
-  const burnedRaw = BigInt(burnRow?.total ?? "0");
-
-  // 3. Excluded balances via eth_call balanceOf() for each excluded address
+  // 2. Excluded balances via balanceOf
   const excludedBalances: Record<string, bigint> = {};
   let excludedRaw = 0n;
 
-  for (const { address, label } of EXCLUDED_ADDRESSES) {
-    const balance = await viemClient.readContract({
-      address: SLVR_TOKEN,
-      abi: ERC20_ABI,
-      functionName: "balanceOf",
-      args: [address as `0x${string}`],
-    }) as bigint;
-    excludedBalances[label] = balance;
-    excludedRaw += balance;
+  await Promise.all(
+    EXCLUDED_ADDRESSES.map(async ({ address, label }) => {
+      const hex = await archivalCall(SLVR_TOKEN, encodeBalanceOf(address), block);
+      const balance = decodeUint256(hex);
+      excludedBalances[label] = balance;
+    })
+  );
+
+  // Sum exclusions
+  for (const { label } of EXCLUDED_ADDRESSES) {
+    excludedRaw += excludedBalances[label] ?? 0n;
   }
 
-  // 4. circulating = totalSupply - excluded
-  // Burns already reflected in totalSupply; do NOT subtract burnedRaw again.
-  const circulatingRaw = totalSupplyRaw - excludedRaw;
+  // 3. circulating = totalSupply - excluded
+  const circulatingRaw = totalSupplyRaw > excludedRaw ? totalSupplyRaw - excludedRaw : 0n;
 
-  // 5. Cross-check: on-chain getCirculatingSupply()
+  // 4. Cross-check: on-chain getCirculatingSupply()
   let onChainCirculatingRaw: bigint | null = null;
   try {
-    onChainCirculatingRaw = await viemClient.readContract({
-      address: SLVR_TOKEN,
-      abi: ERC20_ABI,
-      functionName: "getCirculatingSupply",
-    }) as bigint;
+    const csHex = await archivalCall(SLVR_TOKEN, GET_CIRCULATING_SEL, block);
+    onChainCirculatingRaw = decodeUint256(csHex);
   } catch {
-    // If getter doesn't exist or reverts, proceed without cross-check
     onChainCirculatingRaw = null;
   }
 
-  // 6. Deployer balance for audit (NOT subtracted)
+  // 5. Deployer balance for audit (NOT subtracted)
   let deployerBalance = 0n;
-  try {
-    for (const { address } of AUDIT_ADDRESSES) {
-      const balance = await viemClient.readContract({
-        address: SLVR_TOKEN,
-        abi: ERC20_ABI,
-        functionName: "balanceOf",
-        args: [address as `0x${string}`],
-      }) as bigint;
-      deployerBalance += balance;
+  for (const { address } of AUDIT_ADDRESSES) {
+    try {
+      const hex = await archivalCall(SLVR_TOKEN, encodeBalanceOf(address), block);
+      deployerBalance += decodeUint256(hex);
+    } catch {
+      // non-critical
     }
-  } catch {
-    deployerBalance = 0n;
   }
+
+  void SLVR_CAP; // referenced for type completeness
 
   return {
     totalSupplyRaw,
-    burnedRaw,
     excludedRaw,
     circulatingRaw,
     circulatingHuman: Number(circulatingRaw) / 1e18,
     totalHuman: Number(totalSupplyRaw) / 1e18,
-    burnedHuman: Number(burnedRaw) / 1e18,
     excludedBalances,
     onChainCirculatingRaw,
-    permanentLockedNote:
-      "Permanent locks burn the underlying SLVR (RESEARCH.md §5) — already absent from totalSupply(). Not double-subtracted.",
     deployerBalance,
+    block,
   };
 }

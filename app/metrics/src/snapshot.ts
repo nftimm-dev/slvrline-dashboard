@@ -33,10 +33,12 @@ export async function writeSnapshot(params: SnapshotParams): Promise<void> {
     backfill = false,
   } = params;
 
-  const metadataJson = JSON.stringify(metadata);
+  // postgres.js requires JSON objects to be passed via sql.json() for proper jsonb handling
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const metadataJson = sql.json(metadata as any);
 
   if (backfill) {
-    // Idempotent: skip if a row for (metric_name, snapshot_at) already exists
+    // Idempotent: skip if a row for (metric_name, block_number) already exists for this metric
     await sql`
       INSERT INTO metrics.metric_snapshots
         (metric_name, value, value2, value3, metadata, snapshot_at, block_number)
@@ -45,7 +47,7 @@ export async function writeSnapshot(params: SnapshotParams): Promise<void> {
         ${value},
         ${value2},
         ${value3},
-        ${metadataJson}::jsonb,
+        ${metadataJson},
         ${snapshotAt},
         ${blockNumber.toString()}
       )
@@ -61,7 +63,7 @@ export async function writeSnapshot(params: SnapshotParams): Promise<void> {
         ${value},
         ${value2},
         ${value3},
-        ${metadataJson}::jsonb,
+        ${metadataJson},
         ${snapshotAt},
         ${blockNumber.toString()}
       )

@@ -1,91 +1,94 @@
 /**
- * Mining runway computation.
+ * Emission rate and runway computation — archival eth_call.
  *
- * remaining_cap = 500,000e18 − total_emitted
- * rate_30d      = SUM(token_transfer.value WHERE is_mint=true AND block_time >= NOW()-30d)
- * runway_months = remaining_cap / rate_30d
- *                 (remaining_cap and rate_30d both in raw units; result = months remaining)
+ * emission_rate_30d = totalSupply(head) − totalSupply(block@now−30d)
+ *   This measures how much new SLVR entered circulation over 30 days.
+ *   Burns reduce totalSupply, so this is NET emission (minted − burned).
  *
- * Emissions source: token_transfer WHERE is_mint=true (Transfer from 0x0).
- * This is canonical per RESEARCH.md §1c: Hub RewardMinted is a per-game signal;
- * token Transfer-from-zero is the supply ground truth (also captures 8%/4% team/growth).
+ * remaining_cap = 500,000 − totalSupply(head)
+ * runway_months = remaining_cap / (emission_rate_30d) — in months
+ *   (emission_rate_30d is already a 30-day quantity; result = months remaining)
  *
- * If rate_30d == 0 (no emissions in last 30 days), runway_months = null.
+ * If emission_rate_30d <= 0 (net deflation or no change), runway_months = null.
+ *
+ * selector: totalSupply() = 0x18160ddd
  */
 
-import { sql } from "../db";
-import { SLVR_CAP } from "../constants";
+import {
+  SLVR_TOKEN,
+  SLVR_CAP,
+  EMISSION_WINDOW_SECONDS,
+} from "../constants";
+import { archivalCall, decodeUint256 } from "../rpc";
+import { resolveBlockAtTimestampFast, getHead } from "../block-resolver";
+
+const TOTAL_SUPPLY_SEL = "0x18160ddd";
 
 export type RunwayResult = {
+  totalSupplyNowRaw: bigint;
+  totalSupply30dAgoRaw: bigint;
+  emissionRate30dRaw: bigint;   // net change in supply over 30d (may be negative → clamped to 0)
   remainingCapRaw: bigint;
-  totalEmittedRaw: bigint;
-  rate30dRaw: bigint;
   runwayMonths: number | null;
-  hubConfiguredRatePerSec: bigint | null;
-  dataStatus: "ok" | "no_emissions_in_30d";
+  blockNow: bigint;
+  block30dAgo: bigint;
+  dataStatus: "ok" | "no_net_emission" | "pre_genesis_window";
 };
 
-export async function computeRunway(asOfTime?: Date): Promise<RunwayResult> {
-  const tEpoch = asOfTime ? Math.floor(asOfTime.getTime() / 1000) : Math.floor(Date.now() / 1000);
-  const thirtyDaysAgo = tEpoch - 30 * 24 * 3600;
+export async function computeRunway(atBlock?: bigint): Promise<RunwayResult> {
+  const head = await getHead();
+  const blockNow = atBlock ?? head.block;
 
-  // Total ever emitted (mints from 0x0 address)
-  const [emitRow] = await sql<[{ total: string | null }]>`
-    SELECT SUM(value)::text AS total
-    FROM slvr.token_transfer
-    WHERE is_mint = true
-      AND block_time <= ${tEpoch}
-  `;
-  const totalEmittedRaw = BigInt(emitRow?.total ?? "0");
-  const remainingCapRaw = SLVR_CAP > totalEmittedRaw ? SLVR_CAP - totalEmittedRaw : 0n;
+  // Timestamp at head (used to find 30d-ago block)
+  const nowTs = head.timestamp;
+  const ts30dAgo = nowTs - BigInt(EMISSION_WINDOW_SECONDS);
 
-  // 30-day emission rate
-  const [rate30dRow] = await sql<[{ total: string | null }]>`
-    SELECT SUM(value)::text AS total
-    FROM slvr.token_transfer
-    WHERE is_mint = true
-      AND block_time >= ${thirtyDaysAgo}
-      AND block_time <= ${tEpoch}
-  `;
-  const rate30dRaw = BigInt(rate30dRow?.total ?? "0");
+  // Resolve block at 30d ago
+  const block30dInfo = await resolveBlockAtTimestampFast(ts30dAgo);
+  const block30dAgo = block30dInfo.block;
 
-  // Latest hub_emission_rate for audit cross-check
-  let hubConfiguredRatePerSec: bigint | null = null;
-  try {
-    const [hubRow] = await sql<[{ rate_per_sec: string }]>`
-      SELECT rate_per_sec::text
-      FROM slvr.hub_emission_rate
-      ORDER BY block_number DESC
-      LIMIT 1
-    `;
-    if (hubRow) {
-      hubConfiguredRatePerSec = BigInt(hubRow.rate_per_sec);
-    }
-  } catch {
-    hubConfiguredRatePerSec = null;
-  }
+  // Read totalSupply at both blocks
+  const [hexNow, hex30dAgo] = await Promise.all([
+    archivalCall(SLVR_TOKEN, TOTAL_SUPPLY_SEL, blockNow),
+    archivalCall(SLVR_TOKEN, TOTAL_SUPPLY_SEL, block30dAgo),
+  ]);
 
-  if (rate30dRaw === 0n) {
+  const totalSupplyNowRaw = decodeUint256(hexNow);
+  const totalSupply30dAgoRaw = decodeUint256(hex30dAgo);
+  const remainingCapRaw = SLVR_CAP > totalSupplyNowRaw ? SLVR_CAP - totalSupplyNowRaw : 0n;
+
+  // Net emission = supply change over 30 days (burns reduce supply, mints increase it)
+  // If supply decreased (net burn), rate is 0 / "deflationary"
+  const netChange = totalSupplyNowRaw >= totalSupply30dAgoRaw
+    ? totalSupplyNowRaw - totalSupply30dAgoRaw
+    : 0n;
+  const emissionRate30dRaw = netChange;
+
+  if (emissionRate30dRaw === 0n) {
     return {
+      totalSupplyNowRaw,
+      totalSupply30dAgoRaw,
+      emissionRate30dRaw,
       remainingCapRaw,
-      totalEmittedRaw,
-      rate30dRaw,
       runwayMonths: null,
-      hubConfiguredRatePerSec,
-      dataStatus: "no_emissions_in_30d",
+      blockNow,
+      block30dAgo,
+      dataStatus: "no_net_emission",
     };
   }
 
   // runway_months = remaining_cap / rate_30d
-  // (rate_30d is SLVR emitted over 30 days; remaining / rate = months remaining)
-  const runwayMonths = Number(remainingCapRaw) / Number(rate30dRaw);
+  // (rate_30d is SLVR net-emitted over 30 days = 1 month; remaining / rate = months remaining)
+  const runwayMonths = Number(remainingCapRaw) / Number(emissionRate30dRaw);
 
   return {
+    totalSupplyNowRaw,
+    totalSupply30dAgoRaw,
+    emissionRate30dRaw,
     remainingCapRaw,
-    totalEmittedRaw,
-    rate30dRaw,
     runwayMonths,
-    hubConfiguredRatePerSec,
+    blockNow,
+    block30dAgo,
     dataStatus: "ok",
   };
 }
