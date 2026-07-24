@@ -29,7 +29,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. A double-backfill test (same block range indexed twice) returns identical row counts with no duplicates — idempotency holds
   3. Running the same aggregation (e.g. total transfers) using raw NUMERIC amounts in BigInt matches the Goldsky subgraph total within rounding tolerance — no float precision loss
   4. The Dividends APR formula (numerator, denominator, annualization window) is documented in .planning/ with the specific contract events and field values it uses, derived from the Grid Lottery + SLVR Hub ABIs and cross-referenced against at least one known Goldsky subgraph value
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] phase-1-01-PLAN.md — Schema + config overhaul (8 tables, 3-contract ponder.config.ts, ABI files)
+- [ ] phase-1-02-PLAN.md — Event handlers (11 handlers: SLVR token + both lottery contracts)
+- [ ] phase-1-03-PLAN.md — Full backfill (operational: run indexer to head, monitor for completion)
+- [ ] phase-1-04-PLAN.md — Validation and cross-check (canonical rounds, idempotency, Goldsky comparison)
+- [ ] phase-1-05-PLAN.md — METHODOLOGY.md (Dividends APR formula documentation, DIV-01)
 
 ### Phase 2: Full Contract Coverage
 **Goal**: Every production contract contributing to staking, DEX liquidity, and lottery history is indexed, ready for the metrics layer to read
@@ -51,7 +57,13 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Circulating supply in metric_snapshots equals on-chain SLVR `totalSupply()` minus cumulative confirmed burns minus team-vesting and undeployed growth-fund balances — value verifiable by a developer with a block explorer in under 5 minutes
   3. Mining runway displays as "~X months at current emission rate" with the current 30-day emission rate and remaining cap (500,000 minus total emitted) both present as intermediate values in metric_snapshots
   4. Current Grid Lottery round state (round number, active bet count, jackpot size) in metric_snapshots matches the on-chain `round-state` endpoint within one round
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] phase-3-01-PLAN.md — DB migration (metric_snapshots table + indexes) + app/metrics/ package scaffold
+- [ ] phase-3-02-PLAN.md — Formula implementations: APR (index-delta), circulating supply (eth_call + exclusions), runway (30d rate), staking totals (ve_lock aggregate)
+- [ ] phase-3-03-PLAN.md — Lottery round state (eth_call) + snapshot writer + run.ts + cron.ts
+- [ ] phase-3-04-PLAN.md — Historical backfill: hourly snapshots from protocol deploy to now
+- [ ] phase-3-05-PLAN.md — Validation: Goldsky cross-check, eth_call cross-check, VALIDATION.md
 
 ### Phase 4: API Layer
 **Goal**: Next.js Route Handlers expose pre-computed metrics over HTTP — all numbers come from metric_snapshots, no aggregation happens in the request path
@@ -83,8 +95,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Indexer Foundation | 0/TBD | Not started | - |
+| 1. Indexer Foundation | 0/5 | Not started | - |
 | 2. Full Contract Coverage | 0/TBD | Not started | - |
-| 3. Derived Metrics | 0/TBD | Not started | - |
+| 3. Derived Metrics | 0/5 | Not started | - |
 | 4. API Layer | 0/TBD | Not started | - |
 | 5. Frontend | 0/TBD | Not started | - |
