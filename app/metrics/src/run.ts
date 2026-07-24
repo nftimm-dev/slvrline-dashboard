@@ -40,23 +40,27 @@ export async function computeAndWrite(): Promise<void> {
       metricName: "dividends_apr",
       value: apr.aprPercent,
       value2: apr.deltaIndex !== null ? Number(apr.deltaIndex) / 1e18 : null,
-      value3: APR_WINDOW_SECONDS,
+      value3: apr.windowSeconds,
       metadata: {
         index_now: apr.indexNow?.toString() ?? null,
-        index_7d_ago: apr.index7dAgo?.toString() ?? null,
-        window_seconds: APR_WINDOW_SECONDS,
+        index_window_start: apr.indexWindowStart?.toString() ?? null,
+        window_seconds: apr.windowSeconds,
+        window_days: apr.windowDays,
         contract_version: apr.contractVersion,
         block_now: apr.blockNow?.toString() ?? null,
-        block_7d_ago: apr.block7dAgo?.toString() ?? null,
-        ts_7d_ago: apr.ts7dAgo?.toString() ?? null,
+        block_window_start: apr.blockWindowStart?.toString() ?? null,
+        ts_window_start: apr.tsWindowStart?.toString() ?? null,
         data_status: apr.dataStatus,
+        // "early": V2 < 7d old; window = min(7d, V2 age); matures ~2026-07-29
+        basis: "v2",
         source: "archival_eth_call",
       },
       snapshotAt: now,
       blockNumber: headBlock,
     });
     console.log(
-      `[metrics] dividends_apr: ${apr.aprPercent !== null ? apr.aprPercent.toFixed(2) + "%" : "NULL"} (${apr.dataStatus})`
+      `[metrics] dividends_apr: ${apr.aprPercent !== null ? apr.aprPercent.toFixed(2) + "%" : "NULL"} ` +
+      `(${apr.dataStatus}, ${apr.windowDays}d window, contract=${apr.contractVersion})`
     );
   } catch (e) {
     console.error("[metrics][APR] Error:", e);

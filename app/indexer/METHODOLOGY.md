@@ -2,27 +2,32 @@
 
 **Requirement:** DIV-01  
 **Researched:** 2026-07-24  
-**Status:** Formula exact. Magnitude subject to Phase 3 re-validation (see caveat, §7).
+**Updated:** 2026-07-25 (V1/V2 per-contract routing, windowed headline)  
+**Status:** Formula exact. V2 "early" headline matures to standard 7-day on ~2026-07-29.
 
 ---
 
-## 1. Dividends APR Formula (Primary — index-delta method)
+## APR Formula and Contract Routing
+
+### Core Formula
 
 ```
-APR = ( minerIndex(t) − minerIndex(t − W) ) / 1e18 × ( 31,536,000 / W )
+APR = ( minerIndex(t, contract) − minerIndex(t − W, contract) ) / 1e18 × ( 31,536,000 / W )
 ```
+
+Where `W = min(604800, age_of_active_contract_at_t)` (capped to 7 days, but clamped to the contract's own age so we never sample before the accumulator started).
 
 **Variable definitions:**
 
 | Symbol | Value | Source |
 |--------|-------|--------|
-| `minerIndex(t)` | Most recent `MinerIndexUpdated.newIndex` from `dividend_index_update` table (V2 contract) or live `eth_call` selector `0x9806b4d2` | `dividend_index_update WHERE contract_address = '0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71' ORDER BY block_number DESC LIMIT 1` |
-| `minerIndex(t − W)` | Earliest `MinerIndexUpdated.newIndex` with `block_time >= t − W` | `dividend_index_update WHERE contract_address = V2_ADDRESS AND block_time >= (t - W) ORDER BY block_number ASC LIMIT 1` |
-| `W` | `604,800` seconds (7 days) | Annualization window |
-| `WAD` | `1e18` = `1_000_000_000_000_000_000n` (BigInt) | Ponder schema column type: `bigint()` |
+| `minerIndex(t, contract)` | `eth_call` selector `0x9806b4d2` on the active contract at block `t` | Archival `eth_call`; confirmed exact match with `MinerIndexUpdated` events |
+| `minerIndex(t − W, contract)` | Same call at the block closest to `t − W`, clamped to contract deploy block | Archival `eth_call` |
+| `W` | `min(604800, contract_age_seconds_at_t)` — 7-day cap, shrinks to actual contract age while < 7d | Computed per-sample |
+| `WAD` | `1e18` = `1_000_000_000_000_000_000n` | Normalization constant |
 | `31,536,000` | Seconds per year (365 days) | Annualization constant |
 
-**Window label:** "Dividends APR (7-day)"
+**Window label:** "Dividends APR (7-day)" when W = 7d; "Dividends APR (N-day, early)" when W < 7d.
 
 ---
 
@@ -120,41 +125,57 @@ The flow method produces a higher number because it ignores pool churn (miners w
 
 ---
 
-## 7. Caveat: Early/High Magnitude
+## 7. Caveat: Early/High/Volatile Magnitude
 
-> **WARNING: The APR formula is mechanically exact, but the current level (>1,000%) reflects early/volatile protocol conditions. Do not present this as a steady-state yield.**
+> **WARNING: The APR formula is mechanically exact, but current figures reflect early/volatile protocol conditions. Do not present them as steady-state yields.**
 
-The protocol was deployed approximately 15 days before this methodology was written (SLVR token deployed block 5,574,774, 2026-07-09). Grid Lottery V2 was deployed only ~2 days before research (block 16,764,101, 2026-07-22).
+**V2 headline (as of 2026-07-25):** ~32,000% over a 2-day window. This is elevated because:
+- V2's minerIndex accumulator reset to 0 at block 16,764,101 (2026-07-22). It has only ~3 days of data.
+- The current window is W = min(7d, ~3d) = ~2d. Annualizing 2 days of data over a 365-day year amplifies any variation.
+- `totalUnclaimed` is still a small pool (~495 SLVR); each claim event creates large per-unit swings.
 
-The 7-day window at the time of first computation spans mostly V1 history. **Re-validate magnitude in Phase 3** once at least 7 full days of V2 `MinerIndexUpdated` data have accumulated.
+**V2 headline maturity:** The 7-day standard window becomes available ~2026-07-29. Until then `dataStatus = "early"` and `window_days < 7`. The UI should display:
+> "Dividends APR (~32,456%, 2-day window) — Early data, V2 contract age 3 days. Matures to standard 7-day figure on ~2026-07-29."
 
-Display with an annotation such as:
+**V1 historical figures (~5,000–10,000%):** These are 7-day rolling figures from V1's accumulator over 2026-07-17 to 2026-07-22. They reflect genuine V1 dividend yield during V1's active period. High yield reflects the small early pool size.
 
-> "Dividends APR (7-day): ~1,229% — Early data — magnitude to be re-validated (Phase 3)."
-
-Factors that will cause the APR to normalize over time:
-- `totalUnclaimed` grows as more rounds resolve and more miners enter
-- The refining fee rate is fixed at 10%, but the per-claimer impact diminishes as the pool grows
-- The protocol is ~15 days old at research time; yield on young protocols with small pools is inherently elevated
+**Factors that will normalize APR over time:**
+- `totalUnclaimed` grows as more rounds resolve and miners enter
+- Refining fee rate (10%) is fixed, but per-claimer index impact shrinks as the pool grows
+- Protocol is ~16 days old; elevated yield on small early pools is expected
 
 ---
 
-## 8. V1 vs V2 Index Continuity
+## 8. V1 vs V2 Index Continuity — Active-Contract Routing
 
-V2 started its `minerIndex` accumulator fresh (from 0) at deployment block 16,764,101. The two accumulators are independent.
+GridLotteryV1 and GridLotteryV2 maintain **separate, independent** `minerIndex` accumulators. Mixing them is invalid — they represent refining fee accumulation relative to each contract's own zero-point.
 
-**For the live headline APR:** Use V2's index exclusively:
-```sql
-SELECT new_index FROM dividend_index_update
-WHERE contract_address = LOWER('0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71')
-ORDER BY block_number DESC LIMIT 1;
-```
+**Known accumulator values (on-chain facts):**
 
-**For a historical chart spanning the migration:** Treat V1 and V2 as separate accumulators. Display a discontinuity annotation at:
-- Round 12,500 (canonical migration boundary)
-- Block ~16,881,792 (V2 round 12,500 resolved, 2026-07-23 01:10:32 UTC)
+| Contract | Deploy block | V1 index @ V2 deploy | V1 index today (~2026-07-25) | V2 index @ deploy | V2 index today |
+|---|---|---|---|---|---|
+| V1 `0x284Eb4016305…` | 5,574,774 | 2.2014 | 2.262 | — | — |
+| V2 `0xB0Cc994Ce4E8…` | 16,764,101 | — | — | 0 (reset) | ~1.797 |
 
-Do not stitch V1 + V2 index values — they represent independent accumulators and cannot be added or concatenated.
+**Routing rule used in `computeHistoricalAprForBlock` and `computeDividendsApr`:**
+
+| Sample block | Active contract | Window start clamped to |
+|---|---|---|
+| block < 16,764,101 | GridLotteryV1 | max(V1 deploy, block − 7d) |
+| block >= 16,764,101 | GridLotteryV2 | max(V2 deploy block 16,764,101, block − 7d) |
+
+**Headline APR (live):**
+- Always uses V2.
+- `W = min(604800, seconds since V2 deploy at sample time)`.
+- `dataStatus = "early"` while W < 604800; `"ok"` once V2 has >= 7 days of data (~2026-07-29).
+- UI label: "Dividends APR (2d window, early)" → "Dividends APR (7-day)" after maturity.
+
+**Historical chart (16-day backfill):**
+- V1 era (2026-07-09 → 2026-07-22): honest V1 7-day rolling APR, ramping from "early" to "ok" as V1 accumulates history. Yields approximately 5,000–10,000% in the 7d-ok range.
+- V2 era (2026-07-22 → now): V2 accumulator from zero; early window ramps from 0.d to 2d currently. V2 yields currently ~32,000–166,000% (highly volatile, tiny early window).
+- The chart will show a visible reset/ramp at block 16,764,101 — this is correct and expected, not a data error. Display a migration annotation there.
+
+**Do not concatenate V1 and V2 index values.** The delta APR within each contract is meaningful; the cross-contract delta is not.
 
 ---
 

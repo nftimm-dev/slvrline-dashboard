@@ -10,23 +10,30 @@
  *   - circulating_supply
  *   - emission_rate_30d (supply diff vs 30d-prior block)
  *   - runway_months
- *   - dividends_apr (minerIndex delta; NULL where 7d window precedes V2 deploy)
+ *   - dividends_apr (per-contract rolling APR; V1 for pre-migration, V2 post-migration)
  *   - total_staked_slvr (LP staked at that block)
  *   - lottery_round_state (currentRoundId at that block)
+ *
+ * APR routing (honest per-contract accumulators):
+ *   - block < 16,764,101 → GridLotteryV1 minerIndex; window = min(7d, V1 age)
+ *   - block >= 16,764,101 → GridLotteryV2 minerIndex; window = min(7d, V2 age)
+ *   Mixing V1 and V2 indices is INVALID — they are separate accumulators.
+ *   This yields a continuous, honest chart with a visible reset/ramp at migration.
  *
  * Idempotent: ON CONFLICT DO NOTHING skips already-written rows.
  *
  * Usage:
  *   ts-node src/archival-backfill.ts
- *   ts-node src/archival-backfill.ts --dry-run   (compute sample blocks, no writes)
+ *   ts-node src/archival-backfill.ts --dry-run     (compute sample blocks, no writes)
+ *   ts-node src/archival-backfill.ts --apr-only    (overwrite null dividends_apr rows only)
  */
 
 import { sql } from "./db";
 import { writeSnapshot } from "./snapshot";
-import { computeDividendsApr } from "./formulas/apr";
+import { computeHistoricalAprForBlock } from "./formulas/apr";
 import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
-import { archivalCall, decodeUint256 } from "./rpc";
+import { archivalCall, archivalGetBlock, decodeUint256 } from "./rpc";
 import { getHead, generateSampleBlocks } from "./block-resolver";
 import {
   LOTTERY_V2,
@@ -45,7 +52,8 @@ async function writeBackfillSlot(
   dryRun: boolean,
   slotIdx: number,
   total: number,
-  cachedLpStakedRaw: bigint
+  cachedLpStakedRaw: bigint,
+  aprOnly = false
 ): Promise<void> {
   const snapshotAt = new Date(Number(timestamp) * 1000);
   const prefix = `[backfill][${slotIdx}/${total}] block=${block} ts=${snapshotAt.toISOString()}`;
@@ -53,10 +61,62 @@ async function writeBackfillSlot(
 
   if (dryRun) return;
 
+  // APR-only mode: only (re)compute and write the dividends_apr row
+  if (aprOnly) {
+    const aprResult = await (async () => {
+      try {
+        return await computeHistoricalAprForBlock(block, timestamp);
+      } catch (e) {
+        console.error(`${prefix} [apr] Error:`, String(e));
+        return null;
+      }
+    })();
+    if (aprResult) {
+      // Upsert: delete existing null row and insert fresh, or just insert for blocks with no row
+      await sql`
+        DELETE FROM metrics.metric_snapshots
+        WHERE metric_name = 'dividends_apr'
+          AND block_number = ${block.toString()}
+          AND value IS NULL
+      `;
+      await sql`
+        INSERT INTO metrics.metric_snapshots
+          (metric_name, value, value2, value3, metadata, snapshot_at, block_number)
+        VALUES (
+          'dividends_apr',
+          ${aprResult.aprPercent},
+          ${aprResult.deltaIndex !== null ? Number(aprResult.deltaIndex) / 1e18 : null},
+          ${aprResult.windowSeconds},
+          ${sql.json({
+            index_now: aprResult.indexNow?.toString() ?? null,
+            index_window_start: aprResult.indexWindowStart?.toString() ?? null,
+            block_now: aprResult.blockNow?.toString() ?? null,
+            block_window_start: aprResult.blockWindowStart?.toString() ?? null,
+            ts_window_start: aprResult.tsWindowStart?.toString() ?? null,
+            window_seconds: aprResult.windowSeconds,
+            window_days: aprResult.windowDays,
+            contract_version: aprResult.contractVersion,
+            data_status: aprResult.dataStatus,
+            source: "archival_backfill",
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          } as any)},
+          ${new Date(Number(timestamp) * 1000)},
+          ${block.toString()}
+        )
+        ON CONFLICT DO NOTHING
+      `;
+      console.log(
+        `${prefix} [apr] ${aprResult.aprPercent !== null ? aprResult.aprPercent.toFixed(2) + "%" : "null"} ` +
+        `(${aprResult.dataStatus}, ${aprResult.windowDays}d, ${aprResult.contractVersion})`
+      );
+    }
+    return;
+  }
+
   // Run all independent archival calls for this slot in parallel
   // 1. supply: totalSupply + balanceOf x3 + getCirculatingSupply
   // 2. runway: totalSupply@block + totalSupply@30d-ago-block
-  // 3. apr: minerIndex@block + minerIndex@7d-ago-block
+  // 3. apr: minerIndex@block + minerIndex@window-start-block (V1 or V2 per routing)
   // 4. lottery: currentRoundId@block
   // These are parallelized where possible.
 
@@ -114,7 +174,7 @@ async function writeBackfillSlot(
   // Parallel batch 2: runway + apr (each needs 2 archival calls)
   const [runwayResult, aprResult] = await Promise.allSettled([
     computeRunway(block),
-    computeDividendsApr(block),
+    computeHistoricalAprForBlock(block, timestamp),
   ]);
 
   if (runwayResult.status === "fulfilled") {
@@ -165,12 +225,16 @@ async function writeBackfillSlot(
       metricName: "dividends_apr",
       value: apr.aprPercent,
       value2: apr.deltaIndex !== null ? Number(apr.deltaIndex) / 1e18 : null,
-      value3: APR_WINDOW_SECONDS,
+      value3: apr.windowSeconds,
       metadata: {
         index_now: apr.indexNow?.toString() ?? null,
-        index_7d_ago: apr.index7dAgo?.toString() ?? null,
+        index_window_start: apr.indexWindowStart?.toString() ?? null,
         block_now: apr.blockNow?.toString() ?? null,
-        block_7d_ago: apr.block7dAgo?.toString() ?? null,
+        block_window_start: apr.blockWindowStart?.toString() ?? null,
+        ts_window_start: apr.tsWindowStart?.toString() ?? null,
+        window_seconds: apr.windowSeconds,
+        window_days: apr.windowDays,
+        contract_version: apr.contractVersion,
         data_status: apr.dataStatus,
         source: "archival_backfill",
       },
@@ -214,12 +278,48 @@ async function writeBackfillSlot(
   }
 }
 
+/**
+ * APR-only backfill: re-compute dividends_apr for all existing backfill sample blocks.
+ * Deletes null APR rows and inserts correct values using per-contract routing (V1/V2).
+ */
+async function aprOnlyBackfill(samples: Array<{ block: bigint; timestamp: bigint }>): Promise<void> {
+  console.log(`[backfill][apr-only] Starting APR backfill for ${samples.length} sample blocks`);
+  console.log("[backfill][apr-only] Routing: block < 16,764,101 → V1 accumulator; >= 16,764,101 → V2 accumulator");
+
+  let processed = 0;
+  const t0 = Date.now();
+
+  for (let i = 0; i < samples.length; i++) {
+    const { block, timestamp } = samples[i];
+    try {
+      await writeBackfillSlot(block, timestamp, false, i + 1, samples.length, 0n, true);
+      processed++;
+    } catch (e) {
+      console.error(`[backfill][apr-only] block=${block} Error:`, String(e));
+    }
+    if ((i + 1) % 10 === 0) {
+      const elapsed = (Date.now() - t0) / 1000;
+      const rate = processed / elapsed;
+      const remaining = samples.length - i - 1;
+      const etaSec = rate > 0 ? remaining / rate : 0;
+      console.log(
+        `[backfill][apr-only] ${i + 1}/${samples.length} | elapsed: ${elapsed.toFixed(0)}s | ETA: ${etaSec.toFixed(0)}s`
+      );
+    }
+  }
+  console.log(`[backfill][apr-only] Done. Processed: ${processed}/${samples.length}`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
+  const aprOnly = args.includes("--apr-only");
 
   if (dryRun) {
     console.log("[backfill] DRY RUN — will compute sample blocks but not write to DB");
+  }
+  if (aprOnly) {
+    console.log("[backfill] APR-ONLY mode — overwriting null dividends_apr rows with correct V1/V2 routed values");
   }
 
   console.log("[backfill] Fetching chain head...");
@@ -234,6 +334,28 @@ async function main() {
     for (const s of samples) {
       console.log(`  block=${s.block} ts=${new Date(Number(s.timestamp) * 1000).toISOString()}`);
     }
+    await sql.end();
+    return;
+  }
+
+  // APR-only mode: re-compute just dividends_apr for all sample blocks
+  if (aprOnly) {
+    await aprOnlyBackfill(samples);
+    const [aprSummary] = await sql<[{ total: string; non_null: string; min_val: string; max_val: string }]>`
+      SELECT
+        COUNT(*)::text AS total,
+        COUNT(*) FILTER (WHERE value IS NOT NULL)::text AS non_null,
+        MIN(value)::text AS min_val,
+        MAX(value)::text AS max_val
+      FROM metrics.metric_snapshots
+      WHERE metric_name = 'dividends_apr'
+    `;
+    console.log(
+      `\n[backfill][apr-only] Summary: total=${aprSummary?.total ?? 0}, ` +
+      `non_null=${aprSummary?.non_null ?? 0}, ` +
+      `min=${aprSummary?.min_val ?? "N/A"}%, ` +
+      `max=${aprSummary?.max_val ?? "N/A"}%`
+    );
     await sql.end();
     return;
   }
