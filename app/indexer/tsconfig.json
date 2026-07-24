@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true,
+    "strict": true,
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": [
+    "*.ts",
+    "abis/**/*.ts",
+    "src/**/*.ts",
+    "ponder-env.d.ts"
+  ],
+  "exclude": ["node_modules", "generated", ".ponder"]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "@slvrline/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "ponder dev",
+    "start": "ponder start",
+    "codegen": "ponder codegen"
+  },
+  "dependencies": {
+    "@ponder/client": "^0.17.0",
+    "hono": "^4.12.32",
+    "ponder": "^0.17.0",
+    "viem": "^2.35.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
