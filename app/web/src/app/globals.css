@@ -1,0 +1,58 @@
+/* TODO(fonts): swap Google Fonts import for local variable fonts in production */
+@import url("https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+
+@import "tailwindcss";
+
+@theme {
+  /* Near-black backgrounds */
+  --color-silver-950: #0a0a0f;
+  --color-silver-900: #111118;
+  --color-silver-800: #1a1a24;
+  --color-silver-700: #2a2a38;
+
+  /* Metallic silver accent scale */
+  --color-silver-400: #b0b8c8;
+  --color-silver-300: #c8d0e0;
+  --color-silver-200: #dde3ee;
+  --color-silver-100: #f0f2f6;
+
+  /* Brand accent */
+  --color-accent: #7eb8e8;
+  --color-accent-dim: #3d6e9a;
+
+  /* Semantic: protocol metric colors */
+  --color-apr: #a8f0c8;
+  --color-supply: #c8b8f0;
+  --color-staking: #f0d8a8;
+  --color-price: #7eb8e8;
+  --color-lottery: #f0a8b8;
+
+  /* Freshness indicator */
+  --color-fresh: #6fdb8f;
+  --color-stale: #f0c050;
+  --color-very-stale: #e0604a;
+
+  /* Typography */
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Layout */
+  --radius-card: 12px;
+  --radius-chip: 6px;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background-color: var(--color-silver-950);
+    color: var(--color-silver-300);
+    font-family: var(--font-sans);
+    font-feature-settings: "tnum";
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+}
