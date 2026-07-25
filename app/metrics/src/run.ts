@@ -91,14 +91,27 @@ export async function computeAndWrite(): Promise<void> {
           Object.entries(supplyResult.excludedBalances).map(([k, v]) => [k, v.toString()])
         ),
         deployer_balance: supplyResult.deployerBalance.toString(),
+        // Emitted = totalSupply + cumulative burns (permanent locks burn emitted SLVR).
+        // The frontend progress bar reads emitted_pct (not totalSupply/cap).
+        emitted_raw: supplyResult.emittedRaw.toString(),
+        emitted_human: supplyResult.emittedHuman,
+        emitted_pct: supplyResult.emittedPctOfCap, // fraction 0..1 (≈0.035)
+        burned_raw: supplyResult.cumulativeBurnedRaw.toString(),
+        burned_human: supplyResult.cumulativeBurnedHuman,
+        burn_count: supplyResult.burnCount,
         source: "archival_eth_call",
         permanent_locked_note:
-          "Permanent locks burn the underlying SLVR (RESEARCH.md §5) — already absent from totalSupply(). Not double-subtracted.",
+          "Permanent locks burn the underlying SLVR (RESEARCH.md §5) — absent from totalSupply(), so NOT subtracted from circulating. They ARE counted in emitted (totalSupply + cumulative burns).",
       },
       snapshotAt: now,
       blockNumber: headBlock,
     });
-    console.log(`[metrics] circulating_supply: ${supplyResult.circulatingHuman.toFixed(4)} SLVR (total: ${supplyResult.totalHuman.toFixed(4)})`);
+    console.log(
+      `[metrics] circulating_supply: ${supplyResult.circulatingHuman.toFixed(4)} SLVR ` +
+      `(total: ${supplyResult.totalHuman.toFixed(4)}, ` +
+      `emitted: ${supplyResult.emittedHuman.toFixed(1)} = ${(supplyResult.emittedPctOfCap * 100).toFixed(2)}% of cap, ` +
+      `burned: ${supplyResult.cumulativeBurnedHuman.toFixed(1)})`
+    );
   } catch (e) {
     console.error("[metrics][SUPPLY] Error:", e);
   }
@@ -107,20 +120,23 @@ export async function computeAndWrite(): Promise<void> {
   try {
     const runway = await computeRunway(headBlock);
 
+    // emission_rate_30d now = GROSS SLVR emitted over the (≤30d) window.
     await writeSnapshot({
       metricName: "emission_rate_30d",
-      value: Number(runway.emissionRate30dRaw) / 1e18,
+      value: Number(runway.grossEmittedRaw) / 1e18,
       value2: null,
       value3: null,
       metadata: {
-        emission_rate_30d_raw: runway.emissionRate30dRaw.toString(),
+        gross_emitted_raw: runway.grossEmittedRaw.toString(),
+        emitted_now_raw: runway.emittedNowRaw.toString(),
+        emitted_window_start_raw: runway.emittedWindowStartRaw.toString(),
         total_supply_now_raw: runway.totalSupplyNowRaw.toString(),
-        total_supply_30d_ago_raw: runway.totalSupply30dAgoRaw.toString(),
+        window_days: runway.windowDays,
         block_now: runway.blockNow.toString(),
-        block_30d_ago: runway.block30dAgo.toString(),
+        block_window_start: runway.blockWindowStart.toString(),
         data_status: runway.dataStatus,
         source: "archival_eth_call",
-        note: "Net supply change over 30d = minted - burned (RESEARCH.md §1c)",
+        note: "GROSS emission over window = emitted(now) − emitted(windowStart); emitted = totalSupply + cumulative burns.",
       },
       snapshotAt: now,
       blockNumber: headBlock,
@@ -130,22 +146,26 @@ export async function computeAndWrite(): Promise<void> {
       metricName: "runway_months",
       value: runway.runwayMonths,
       value2: Number(runway.remainingCapRaw) / 1e18,
-      value3: Number(runway.emissionRate30dRaw) / 1e18,
+      value3: Number(runway.grossEmittedRaw) / 1e18,
       metadata: {
         remaining_cap_raw: runway.remainingCapRaw.toString(),
-        total_supply_raw: runway.totalSupplyNowRaw.toString(),
-        emission_rate_30d_raw: runway.emissionRate30dRaw.toString(),
+        emitted_now_raw: runway.emittedNowRaw.toString(),
+        gross_emitted_raw: runway.grossEmittedRaw.toString(),
+        per_day_gross_raw: runway.perDayGrossRaw.toString(),
+        window_days: runway.windowDays,
         block_now: runway.blockNow.toString(),
-        block_30d_ago: runway.block30dAgo.toString(),
+        block_window_start: runway.blockWindowStart.toString(),
         data_status: runway.dataStatus,
         source: "archival_eth_call",
+        note: "runway = (500K − emitted(now)) / per-day GROSS emission / 30.44.",
       },
       snapshotAt: now,
       blockNumber: headBlock,
     });
 
     console.log(
-      `[metrics] emission_rate_30d: ${(Number(runway.emissionRate30dRaw) / 1e18).toFixed(4)} SLVR | runway: ${runway.runwayMonths?.toFixed(2) ?? "NULL"} months`
+      `[metrics] emission_rate_30d (gross): ${(Number(runway.grossEmittedRaw) / 1e18).toFixed(4)} SLVR over ${runway.windowDays.toFixed(1)}d | ` +
+      `runway: ${runway.runwayMonths?.toFixed(2) ?? "NULL"} months (${runway.dataStatus})`
     );
   } catch (e) {
     console.error("[metrics][RUNWAY] Error:", e);
@@ -156,13 +176,15 @@ export async function computeAndWrite(): Promise<void> {
     const staking = await computeStaking(headBlock);
     await writeSnapshot({
       metricName: "total_staked_slvr",
+      // value = total locked; value2 = PERMANENT (card's "N permanent" reads value2);
+      // value3 = time-locked.
       value: Number(staking.totalLockedRaw) / 1e18,
-      value2: Number(staking.timelockedRaw) / 1e18,
-      value3: Number(staking.permanentRaw) / 1e18,
+      value2: Number(staking.permanentRaw) / 1e18,
+      value3: Number(staking.timelockedRaw) / 1e18,
       metadata: {
         total_locked_raw: staking.totalLockedRaw.toString(),
-        timelocked_raw: staking.timelockedRaw.toString(),
         permanent_raw: staking.permanentRaw.toString(),
+        timelocked_raw: staking.timelockedRaw.toString(),
         active_lock_count: staking.activeLockCount,
         lp_staked_raw: staking.lpStakedRaw.toString(),
         lp_staked_lp_tokens: staking.lpStakedHuman.toFixed(6),

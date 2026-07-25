@@ -27,10 +27,12 @@ import {
   AUDIT_ADDRESSES,
 } from "../constants";
 import { archivalCall, decodeUint256 } from "../rpc";
+import { cumulativeBurnedAt } from "./burns";
 
 const TOTAL_SUPPLY_SEL = "0x18160ddd";
 const BALANCE_OF_SEL = "0x70a08231";
 const GET_CIRCULATING_SEL = "0x2b112e49";
+const SLVR_CAP_HUMAN = Number(SLVR_CAP) / 1e18;
 
 // Encode balanceOf(address) call data
 function encodeBalanceOf(address: string): string {
@@ -49,9 +51,24 @@ export type SupplyResult = {
   onChainCirculatingRaw: bigint | null;
   deployerBalance: bigint;
   block: bigint;
+  // Cumulative burns + emitted accounting (permanent locks burn emitted SLVR).
+  cumulativeBurnedRaw: bigint;
+  cumulativeBurnedHuman: number;
+  burnCount: number;
+  emittedRaw: bigint;         // totalSupply + cumulativeBurned
+  emittedHuman: number;
+  emittedPctOfCap: number;    // emitted / 500,000  (fraction, 0..1)
 };
 
-export async function computeSupply(block: bigint): Promise<SupplyResult> {
+/**
+ * @param block   block to read supply/exclusions/emitted at.
+ * @param scanTo  block to scan burn logs up to (cache key). Defaults to `block`.
+ *                Backfill passes head so all slots share one burn scan.
+ */
+export async function computeSupply(
+  block: bigint,
+  scanTo?: bigint
+): Promise<SupplyResult> {
   // 1. totalSupply at given block
   const totalSupplyHex = await archivalCall(SLVR_TOKEN, TOTAL_SUPPLY_SEL, block);
   const totalSupplyRaw = decodeUint256(totalSupplyHex);
@@ -96,7 +113,16 @@ export async function computeSupply(block: bigint): Promise<SupplyResult> {
     }
   }
 
-  void SLVR_CAP; // referenced for type completeness
+  // 6. Cumulative burned (Σ Transfer→0x0 with blockNumber ≤ block) and emitted.
+  //    emitted = totalSupply + cumulativeBurned — the true total ever minted from the
+  //    500K budget. Burned (mostly permanent-locked) SLVR was emitted but left supply.
+  const { burnedRaw: cumulativeBurnedRaw, burnCount } = await cumulativeBurnedAt(
+    block,
+    scanTo ?? block
+  );
+  const emittedRaw = totalSupplyRaw + cumulativeBurnedRaw;
+  const emittedHuman = Number(emittedRaw) / 1e18;
+  const emittedPctOfCap = emittedHuman / SLVR_CAP_HUMAN;
 
   return {
     totalSupplyRaw,
@@ -108,5 +134,11 @@ export async function computeSupply(block: bigint): Promise<SupplyResult> {
     onChainCirculatingRaw,
     deployerBalance,
     block,
+    cumulativeBurnedRaw,
+    cumulativeBurnedHuman: Number(cumulativeBurnedRaw) / 1e18,
+    burnCount,
+    emittedRaw,
+    emittedHuman,
+    emittedPctOfCap,
   };
 }

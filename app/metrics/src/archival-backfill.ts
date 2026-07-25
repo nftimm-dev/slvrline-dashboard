@@ -53,6 +53,7 @@ async function writeBackfillSlot(
   slotIdx: number,
   total: number,
   cachedLpStakedRaw: bigint,
+  scanToBlock: bigint,
   aprOnly = false
 ): Promise<void> {
   const snapshotAt = new Date(Number(timestamp) * 1000);
@@ -120,13 +121,14 @@ async function writeBackfillSlot(
   // 4. lottery: currentRoundId@block
   // These are parallelized where possible.
 
-  // Parallel batch 1: supply + lottery (no cross-dependencies)
+  // Parallel batch 1: supply + lottery (no cross-dependencies).
+  // scanToBlock (=head) makes every slot reuse a single cached burn-log scan.
   const [supplyResult, roundIdHex] = await Promise.allSettled([
-    computeSupply(block),
+    computeSupply(block, scanToBlock),
     archivalCall(LOTTERY_V2, CURRENT_ROUND_ID_SEL, block),
   ]);
 
-  // Write supply
+  // Write supply (+ emitted accounting)
   if (supplyResult.status === "fulfilled") {
     const supply = supplyResult.value;
     await writeSnapshot({
@@ -139,6 +141,11 @@ async function writeBackfillSlot(
         excluded_raw: supply.excludedRaw.toString(),
         circulating_raw: supply.circulatingRaw.toString(),
         on_chain_cs_raw: supply.onChainCirculatingRaw?.toString() ?? null,
+        emitted_raw: supply.emittedRaw.toString(),
+        emitted_human: supply.emittedHuman,
+        emitted_pct: supply.emittedPctOfCap,
+        burned_raw: supply.cumulativeBurnedRaw.toString(),
+        burned_human: supply.cumulativeBurnedHuman,
         block: block.toString(),
         source: "archival_backfill",
       },
@@ -171,9 +178,9 @@ async function writeBackfillSlot(
     console.error(`${prefix} [lottery] Error:`, String(roundIdHex.reason));
   }
 
-  // Parallel batch 2: runway + apr (each needs 2 archival calls)
+  // Parallel batch 2: runway + apr. Runway shares the cached burn scan via scanToBlock.
   const [runwayResult, aprResult] = await Promise.allSettled([
-    computeRunway(block),
+    computeRunway(block, scanToBlock),
     computeHistoricalAprForBlock(block, timestamp),
   ]);
 
@@ -182,15 +189,17 @@ async function writeBackfillSlot(
     await Promise.all([
       writeSnapshot({
         metricName: "emission_rate_30d",
-        value: Number(runway.emissionRate30dRaw) / 1e18,
+        value: Number(runway.grossEmittedRaw) / 1e18,
         value2: null,
         value3: null,
         metadata: {
-          emission_rate_30d_raw: runway.emissionRate30dRaw.toString(),
+          gross_emitted_raw: runway.grossEmittedRaw.toString(),
+          emitted_now_raw: runway.emittedNowRaw.toString(),
+          emitted_window_start_raw: runway.emittedWindowStartRaw.toString(),
           total_supply_now_raw: runway.totalSupplyNowRaw.toString(),
-          total_supply_30d_ago_raw: runway.totalSupply30dAgoRaw.toString(),
+          window_days: runway.windowDays,
           block_now: runway.blockNow.toString(),
-          block_30d_ago: runway.block30dAgo.toString(),
+          block_window_start: runway.blockWindowStart.toString(),
           data_status: runway.dataStatus,
           source: "archival_backfill",
         },
@@ -202,10 +211,12 @@ async function writeBackfillSlot(
         metricName: "runway_months",
         value: runway.runwayMonths,
         value2: Number(runway.remainingCapRaw) / 1e18,
-        value3: Number(runway.emissionRate30dRaw) / 1e18,
+        value3: Number(runway.grossEmittedRaw) / 1e18,
         metadata: {
           remaining_cap_raw: runway.remainingCapRaw.toString(),
-          emission_rate_30d_raw: runway.emissionRate30dRaw.toString(),
+          emitted_now_raw: runway.emittedNowRaw.toString(),
+          gross_emitted_raw: runway.grossEmittedRaw.toString(),
+          window_days: runway.windowDays,
           block: block.toString(),
           data_status: runway.dataStatus,
           source: "archival_backfill",
@@ -292,7 +303,7 @@ async function aprOnlyBackfill(samples: Array<{ block: bigint; timestamp: bigint
   for (let i = 0; i < samples.length; i++) {
     const { block, timestamp } = samples[i];
     try {
-      await writeBackfillSlot(block, timestamp, false, i + 1, samples.length, 0n, true);
+      await writeBackfillSlot(block, timestamp, false, i + 1, samples.length, 0n, 0n, true);
       processed++;
     } catch (e) {
       console.error(`[backfill][apr-only] block=${block} Error:`, String(e));
@@ -396,7 +407,7 @@ async function main() {
       continue;
     }
 
-    await writeBackfillSlot(block, timestamp, dryRun, i + 1, samples.length, cachedLpStakedRaw);
+    await writeBackfillSlot(block, timestamp, dryRun, i + 1, samples.length, cachedLpStakedRaw, head.block);
     processed++;
 
     const elapsed = (Date.now() - t0) / 1000;

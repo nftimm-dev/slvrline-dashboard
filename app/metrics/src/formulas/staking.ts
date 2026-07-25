@@ -1,57 +1,49 @@
 /**
- * veSLVR staking totals — hybrid approach.
+ * veSLVR + LP staking totals — reads ON-CHAIN STATE, not fragile event parsing.
  *
- * Strategy A (preferred): eth_getLogs on VoteEscrow contract to reconstruct locks.
- *   - VoteEscrow is sparse (few locks); fetch all LockCreated + LockWithdrawn + LockConvertedToPermanent events.
- *   - Reconstruct active locks, sum amounts, split permanent vs timelocked.
- *   - Chunk the block range into 200k-block windows to avoid RPC range limits.
- *   - Use dual-RPC with backoff.
+ * veSLVR (FIX 1):
+ *   1. Enumerate every ve lock tokenId ever minted: getLogs on VOTE_ESCROW for ERC-721
+ *      mints — Transfer(from=0x0) — across genesis→block, adaptively (getLogsAdaptive,
+ *      PRIMARY-pinned + subdivision; plain round-robin getLogs silently under-counts on
+ *      wide historical ranges — see rpc.ts). tokenId is the indexed topic3.
+ *   2. For each unique tokenId, eth_call `locks(tokenId)` → (amount, lockStart, lockEnd,
+ *      permanent, isMaxTime). This reads CURRENT state, so it self-corrects for
+ *      withdrawals (withdrawn locks read amount 0) and permanent conversions.
+ *   3. If amount > 0: add to total; classify permanent when (permanent==true OR lockEnd==0),
+ *      else time-locked. Sum totals + active lock count.
  *
- * Strategy B (fallback): balanceOf(voteEscrow) for time-locked total.
- *   - Permanent locks are burned from totalSupply so they won't show in balanceOf.
- *   - Use this if getLogs is too slow or limited.
+ * Expected @ head: total ≈12,110, permanent ≈10,877, time-locked ≈1,233, active ≈933.
  *
- * LP staking: totalStaked() on LP staking contract via eth_call.
- *   - Returns LP tokens staked (not raw SLVR).
- *   - Selector: totalStaked() = 0x817b1cd2
+ * NOTE: Permanent locks BURN the underlying SLVR (RESEARCH.md §5). Counting them in
+ * total_staked is informational — those tokens are no longer in totalSupply().
  *
- * VoteEscrow event topics (keccak256):
- *   LockCreated(uint256,address,uint256,uint256,bool) — topic0 = 0x... (see below)
- *   LockWithdrawn(uint256,address,uint256)            — topic0 = 0x...
- *   LockConvertedToPermanent(uint256,uint256,uint256) — topic0 = 0x...
- *
- * NOTE: Permanent locks BURN the underlying SLVR (RESEARCH.md §5).
- * Counting permanent in total_staked is informational — those tokens are no longer in totalSupply.
+ * LP staking: totalStaked() on the LP staking contract (single eth_call) — returns LP
+ * tokens staked (not raw SLVR). Kept as-is.
  */
 
+import { toFunctionSelector, encodeAbiParameters, decodeAbiParameters, parseAbiParameters } from "viem";
 import {
   VOTE_ESCROW,
   LP_STAKING,
   SLVR_TOKEN,
   DEPLOY_BLOCK_TOKEN,
 } from "../constants";
-import { archivalCall, getLogs, decodeUint256 } from "../rpc";
+import { archivalCall, getLogsAdaptive, decodeUint256, TRANSFER_TOPIC0, ZERO_TOPIC } from "../rpc";
 import { getHead } from "../block-resolver";
 
 // Function selectors
 const LP_TOTAL_STAKED_SEL = "0x817b1cd2"; // totalStaked()
 const BALANCE_OF_SEL = "0x70a08231";      // balanceOf(address)
 
-// VoteEscrow event topic0s (Ethereum keccak256 of signature)
-// LockCreated(uint256 indexed tokenId, address indexed user, uint256 amount, uint256 duration, bool permanent)
-// From RESEARCH.md §5
-// NOTE: We need to compute these. For now use getLogs with just the address and fetch all events.
-// Then parse data to find lock amounts.
+// locks(uint256) → (uint256 amount, uint256 lockStart, uint256 lockEnd, bool permanent, bool isMaxTime)
+const LOCKS_SEL = toFunctionSelector(
+  "function locks(uint256) view returns (uint256,uint256,uint256,bool,bool)"
+);
+const LOCKS_OUT = parseAbiParameters("uint256, uint256, uint256, bool, bool");
+const UINT256 = parseAbiParameters("uint256");
 
-// Log chunk size: 500k blocks per batch to stay within RPC limits
-const LOG_CHUNK_SIZE = 500_000n;
-
-type LockState = {
-  tokenId: string;
-  amount: bigint;
-  permanent: boolean;
-  withdrawn: boolean;
-};
+// Concurrency for the ~1,600 locks() eth_calls.
+const LOCKS_CONCURRENCY = 10;
 
 export type StakingResult = {
   totalLockedRaw: bigint;
@@ -60,17 +52,9 @@ export type StakingResult = {
   activeLockCount: number;
   lpStakedRaw: bigint;
   lpStakedHuman: number;
-  source: "ve_lock_events" | "ve_balance_fallback";
+  source: "ve_onchain_state" | "ve_balance_fallback";
   note: string;
 };
-
-// Known event topic0 hashes for VoteEscrow
-// Computed from: keccak256("LockCreated(uint256,address,uint256,uint256,bool)")
-// We fetch all logs from the contract and filter by topic0
-// These must be verified against the ABI — for now we'll fetch all logs for the ve contract
-// and parse them naively (the contract is sparse so this is acceptable)
-const LOCK_CREATED_TOPIC = null; // Fetch all events, filter in memory by parsing
-const LOCK_WITHDRAWN_TOPIC = null;
 
 export async function computeStaking(atBlock?: bigint): Promise<StakingResult> {
   const head = await getHead();
@@ -85,7 +69,7 @@ export async function computeStaking(atBlock?: bigint): Promise<StakingResult> {
     console.warn("[staking] LP totalStaked() failed:", String(e));
   }
 
-  // 2. veSLVR locks: try event-based reconstruction first
+  // 2. veSLVR locks: on-chain state reconstruction
   try {
     const lockResult = await computeVeLockTotals(block);
     return {
@@ -94,11 +78,10 @@ export async function computeStaking(atBlock?: bigint): Promise<StakingResult> {
       lpStakedHuman: Number(lpStakedRaw) / 1e18,
     };
   } catch (e) {
-    console.warn("[staking] ve_lock_events failed, falling back to balanceOf:", String(e));
+    console.warn("[staking] ve_onchain_state failed, falling back to balanceOf:", String(e));
   }
 
-  // 3. Fallback: balanceOf(voteEscrow) ≈ time-locked SLVR
-  // Note: permanent locks are burned, so they don't appear in balanceOf
+  // 3. Fallback: balanceOf(voteEscrow) ≈ time-locked SLVR (permanent locks are burned).
   let balanceFallback = 0n;
   try {
     const addr = VOTE_ESCROW.toLowerCase().replace("0x", "").padStart(64, "0");
@@ -109,157 +92,80 @@ export async function computeStaking(atBlock?: bigint): Promise<StakingResult> {
   }
 
   return {
-    totalLockedRaw: balanceFallback, // only time-locked (permanent burned = not in balanceOf)
+    totalLockedRaw: balanceFallback,
     timelockedRaw: balanceFallback,
-    permanentRaw: 0n, // unknown via this fallback method
-    activeLockCount: -1, // unknown
+    permanentRaw: 0n,
+    activeLockCount: -1,
     lpStakedRaw,
     lpStakedHuman: Number(lpStakedRaw) / 1e18,
     source: "ve_balance_fallback",
-    note: "Fallback: balanceOf(voteEscrow) = time-locked only. Permanent locks are burned and not included. getLogs reconstruction failed.",
+    note: "Fallback: balanceOf(voteEscrow) = time-locked only. Permanent locks are burned and not included. On-chain enumeration failed.",
   };
 }
 
 async function computeVeLockTotals(
   atBlock: bigint
 ): Promise<Pick<StakingResult, "totalLockedRaw" | "timelockedRaw" | "permanentRaw" | "activeLockCount" | "source" | "note">> {
-  const fromBlock = DEPLOY_BLOCK_TOKEN;
-  const toBlock = atBlock;
+  // Step 1: enumerate every ve lock tokenId ever minted (ERC-721 Transfer from 0x0).
+  const mintLogs = await getLogsAdaptive({
+    address: VOTE_ESCROW,
+    topics: [TRANSFER_TOPIC0, ZERO_TOPIC], // [Transfer, from=0x0]  (to, tokenId not filtered)
+    fromBlock: DEPLOY_BLOCK_TOKEN,
+    toBlock: atBlock,
+  });
 
-  // Fetch all Transfer events from VoteEscrow contract (mint events = lock creations)
-  // VoteEscrow is ERC-721 soulbound. Transfer(from=0x0, ...) = mint = new lock
-  // Transfer(to=0x0, ...) = burn = lock withdrawn
-  // But we need amount info which isn't in Transfer events.
-  // Instead, fetch all events and look for LockCreated/LockWithdrawn patterns.
-
-  // Strategy: fetch ALL logs from VoteEscrow and parse in memory
-  // The contract is sparse (few locks in ~15 days)
-  const allLogs: Array<{ topics: string[]; data: string; blockNumber: string }> = [];
-
-  for (let lo = fromBlock; lo <= toBlock; lo += LOG_CHUNK_SIZE) {
-    const hi = lo + LOG_CHUNK_SIZE - 1n < toBlock ? lo + LOG_CHUNK_SIZE - 1n : toBlock;
-    const chunk = await getLogs({
-      address: VOTE_ESCROW,
-      topics: [],
-      fromBlock: lo,
-      toBlock: hi,
-    });
-    allLogs.push(...chunk);
+  const tokenIds = new Set<string>();
+  for (const lg of mintLogs) {
+    // topics = [sig, from(0x0), to, tokenId]; tokenId indexed at topic3.
+    if (lg.topics.length >= 4) tokenIds.add(lg.topics[3]);
   }
 
-  if (allLogs.length === 0) {
+  if (tokenIds.size === 0) {
     return {
       totalLockedRaw: 0n,
       timelockedRaw: 0n,
       permanentRaw: 0n,
       activeLockCount: 0,
-      source: "ve_lock_events",
-      note: "No VoteEscrow events found.",
+      source: "ve_onchain_state",
+      note: "No ve lock mints found.",
     };
   }
 
-  // Parse events. We need to identify:
-  // - LockCreated: tokenId, amount, permanent flag
-  // - LockWithdrawn: tokenId (lock released)
-  // - LockConvertedToPermanent: tokenId, new permanent tokenId, amount
-  // - LockIncreased: tokenId, addedAmount
-  //
-  // Topic0 values (must match ABI signatures exactly):
-  // These are the actual Ethereum keccak256 values based on the ABI we read.
-  // We'll fingerprint by topic[0] pattern matching.
-
-  // From SlvrVoteEscrow.json ABI events (need to compute topic0 for each):
-  // Since we can't import a keccak library easily, we use the known topic0s from research.
-  // RESEARCH.md §5 lists event names; we'll use a node.js approach.
-
-  // Actually, let's compute these at runtime using the crypto module
-  const { createHash } = await import("crypto");
-
-  function keccak256Sig(sig: string): string {
-    // Node.js crypto doesn't have keccak-256 built-in in older versions
-    // We'll use sha3-256 which is NOT the same as keccak-256.
-    // This is a known limitation — use the verified topic0 values from RESEARCH.md instead.
-    // For now, return placeholder and use pattern-based detection below.
-    void createHash; void sig;
-    return "";
-  }
-  void keccak256Sig;
-
-  // Use known event fingerprints from the RESEARCH.md / ABI:
-  // We'll detect events by topic count and data length patterns
-  // LockCreated has 5 params with tokenId + user indexed = 3 topics, data has 3 words (96 bytes)
-  // LockWithdrawn has tokenId + user indexed = 3 topics, data has 1 word (32 bytes)
-  // For safety, we use the simplest possible parsing:
-  //   - events with 3 topics and 96-byte data = likely LockCreated
-  //   - events with 3 topics and 32-byte data = likely LockWithdrawn
-
-  const locks = new Map<string, LockState>();
-
-  for (const log of allLogs) {
-    const { topics, data } = log;
-    const dataBytes = data.replace("0x", "");
-
-    // LockCreated: 3 indexed (topic0=sig, topic1=tokenId, topic2=user), data = amount(32) + duration(32) + permanent(32)
-    if (topics.length === 3 && dataBytes.length === 192) {
-      const tokenId = topics[1];
-      const amount = BigInt("0x" + dataBytes.slice(0, 64));
-      // permanent is the 3rd word (bool, last 32 bytes, non-zero = true)
-      const permanentWord = dataBytes.slice(128, 192);
-      const permanent = BigInt("0x" + permanentWord) !== 0n;
-
-      locks.set(tokenId, {
-        tokenId,
-        amount,
-        permanent,
-        withdrawn: false,
-      });
-    }
-    // LockWithdrawn: 3 indexed (topic0=sig, topic1=tokenId, topic2=user), data = amount(32)
-    else if (topics.length === 3 && dataBytes.length === 64) {
-      const tokenId = topics[1];
-      const existing = locks.get(tokenId);
-      if (existing) {
-        locks.set(tokenId, { ...existing, withdrawn: true });
-      } else {
-        // Mark as withdrawn even if we didn't see the creation
-        locks.set(tokenId, {
-          tokenId,
-          amount: 0n,
-          permanent: false,
-          withdrawn: true,
-        });
-      }
-    }
-    // LockConvertedToPermanent: 3 indexed topics, data = 3 words
-    else if (topics.length === 3 && dataBytes.length === 192) {
-      // Could overlap with LockCreated pattern — we handle below by checking permanent flag
-    }
-    // LockIncreased: tokenId indexed (2 topics), data = addedAmount + newLockEnd
-    else if (topics.length === 2 && dataBytes.length === 128) {
-      const tokenId = topics[1];
-      const addedAmount = BigInt("0x" + dataBytes.slice(0, 64));
-      const existing = locks.get(tokenId);
-      if (existing) {
-        locks.set(tokenId, { ...existing, amount: existing.amount + addedAmount });
-      }
-    }
-  }
-
-  // Sum active locks
+  // Step 2+3: read current locks(tokenId) state for each, sum + classify.
+  const ids = [...tokenIds];
   let totalLockedRaw = 0n;
   let timelockedRaw = 0n;
   let permanentRaw = 0n;
   let activeLockCount = 0;
 
-  for (const lock of locks.values()) {
-    if (lock.withdrawn) continue;
-    if (lock.amount === 0n) continue;
-    totalLockedRaw += lock.amount;
-    activeLockCount++;
-    if (lock.permanent) {
-      permanentRaw += lock.amount;
-    } else {
-      timelockedRaw += lock.amount;
+  for (let i = 0; i < ids.length; i += LOCKS_CONCURRENCY) {
+    const batch = ids.slice(i, i + LOCKS_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (tid) => {
+        const calldata =
+          LOCKS_SEL + encodeAbiParameters(UINT256, [BigInt(tid)]).slice(2);
+        const hex = await archivalCall(VOTE_ESCROW, calldata, atBlock);
+        try {
+          return decodeAbiParameters(LOCKS_OUT, hex as `0x${string}`);
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    for (const r of results) {
+      if (!r) continue;
+      const amount = r[0] as bigint;
+      const lockEnd = r[2] as bigint;
+      const permanent = r[3] as boolean;
+      if (amount <= 0n) continue; // withdrawn/empty
+      totalLockedRaw += amount;
+      activeLockCount++;
+      if (permanent || lockEnd === 0n) {
+        permanentRaw += amount;
+      } else {
+        timelockedRaw += amount;
+      }
     }
   }
 
@@ -268,7 +174,7 @@ async function computeVeLockTotals(
     timelockedRaw,
     permanentRaw,
     activeLockCount,
-    source: "ve_lock_events",
-    note: `Reconstructed from ${allLogs.length} VoteEscrow events across ${locks.size} lock positions.`,
+    source: "ve_onchain_state",
+    note: `On-chain state: ${ids.length} lock tokenIds enumerated, ${activeLockCount} active (amount>0).`,
   };
 }

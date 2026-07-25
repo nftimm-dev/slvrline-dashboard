@@ -13,6 +13,12 @@ import { RPC_PRIMARY, RPC_SECONDARY } from "./constants";
 
 const RPC_URLS = [RPC_PRIMARY, RPC_SECONDARY];
 
+// Shared ERC-20 / ERC-721 Transfer(address,address,uint256) topic0.
+export const TRANSFER_TOPIC0 =
+  "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+export const ZERO_TOPIC =
+  "0x0000000000000000000000000000000000000000000000000000000000000000";
+
 type BlockParam = bigint | "latest" | "earliest";
 
 function toBlockHex(block: BlockParam): string {
@@ -192,6 +198,152 @@ export async function getLogs(params: {
     }
   }
   throw lastErr ?? new Error("getLogs failed after retries");
+}
+
+/**
+ * getLogsAdaptive — reliable historical eth_getLogs for full genesis→head scans.
+ *
+ * WHY this exists (and why plain getLogs is unsafe for large historical ranges):
+ *   - The SECONDARY RPC (slvr.fun) has a shallow / divergent log index — a full-range
+ *     eth_getLogs there returns near-zero results with NO error. Round-robining between
+ *     RPCs (as getLogs does) therefore silently under-counts by ~50%+, corrupting any
+ *     cumulative sum (burns, ve mints). So this function pins to PRIMARY only.
+ *   - The PRIMARY RPC (Robinhood) errors ("log query timed out" / 429) on dense wide
+ *     ranges rather than truncating. So we adaptively subdivide the block range on those
+ *     errors and recurse, with exponential backoff on rate-limits.
+ *
+ * The result is a complete, deterministic log set. Supports nested-array topics
+ * (e.g. [topic0, null, toAddrTopic]) for Transfer(from=any, to=0x0) style filters.
+ *
+ * @param topics  Filter topics; each entry may be a string, null (wildcard), or string[].
+ * @param onProgress optional callback for coarse progress logging.
+ */
+export async function getLogsAdaptive(params: {
+  address: string;
+  topics: Array<string | null | string[]>;
+  fromBlock: bigint;
+  toBlock: bigint;
+  initialSpan?: bigint;
+  onProgress?: (info: { from: bigint; to: bigint; count: number }) => void;
+}): Promise<Array<{ topics: string[]; data: string; blockNumber: string }>> {
+  const { address, topics, fromBlock, toBlock } = params;
+  const initialSpan = params.initialSpan ?? 250_000n;
+
+  const out: Array<{ topics: string[]; data: string; blockNumber: string }> = [];
+
+  // Walk the range in initialSpan windows; each window subdivides on error.
+  for (let lo = fromBlock; lo <= toBlock; lo += initialSpan) {
+    const hi = lo + initialSpan - 1n < toBlock ? lo + initialSpan - 1n : toBlock;
+    const chunk = await getLogsRangePinned(address, topics, lo, hi, 0);
+    if (chunk.length > 0 && params.onProgress) {
+      params.onProgress({ from: lo, to: hi, count: chunk.length });
+    }
+    out.push(...chunk);
+    // Gentle pacing between windows to respect PRIMARY rate limits.
+    await sleep(120);
+  }
+
+  return out;
+}
+
+// Single pinned-PRIMARY getLogs for a range, subdividing on timeout/429/range errors.
+async function getLogsRangePinned(
+  address: string,
+  topics: Array<string | null | string[]>,
+  lo: bigint,
+  hi: bigint,
+  depth: number
+): Promise<Array<{ topics: string[]; data: string; blockNumber: string }>> {
+  const reqBody = JSON.stringify({
+    jsonrpc: "2.0",
+    method: "eth_getLogs",
+    params: [
+      {
+        address,
+        topics,
+        fromBlock: "0x" + lo.toString(16),
+        toBlock: "0x" + hi.toString(16),
+      },
+    ],
+    id: 1,
+  });
+
+  const MAX_ATTEMPTS = 5;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    let resp: Response;
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30_000);
+      try {
+        resp = await fetch(RPC_PRIMARY, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: reqBody,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      // Network/abort — back off and retry, then fall through to split.
+      await sleep(500 * Math.pow(2, attempt));
+      continue;
+    }
+
+    let j: {
+      result?: Array<{ topics: string[]; data: string; blockNumber: string }>;
+      error?: { code: number; message: string };
+    };
+    try {
+      j = (await resp.json()) as typeof j;
+    } catch {
+      await sleep(500 * Math.pow(2, attempt));
+      continue;
+    }
+
+    if (resp.status === 429) {
+      await sleep(1500 * Math.pow(2, attempt));
+      continue;
+    }
+
+    if (j.error) {
+      const m = (j.error.message || "").toLowerCase();
+      if (m.includes("too many") || m.includes("429") || m.includes("rate")) {
+        await sleep(1500 * Math.pow(2, attempt));
+        continue;
+      }
+      // Range-too-large / timeout signals → split immediately.
+      if (
+        m.includes("timed out") ||
+        m.includes("timeout") ||
+        m.includes("limit") ||
+        m.includes("too large") ||
+        m.includes("range") ||
+        m.includes("too many results")
+      ) {
+        break;
+      }
+      // Unknown error — brief backoff then retry.
+      await sleep(400 * Math.pow(2, attempt));
+      continue;
+    }
+
+    if (Array.isArray(j.result)) return j.result;
+    await sleep(400 * Math.pow(2, attempt));
+  }
+
+  // Subdivide and recurse. Guard against pathological recursion depth.
+  if (hi > lo && depth < 40) {
+    const mid = (lo + hi) / 2n;
+    const left = await getLogsRangePinned(address, topics, lo, mid, depth + 1);
+    await sleep(120);
+    const right = await getLogsRangePinned(address, topics, mid + 1n, hi, depth + 1);
+    return left.concat(right);
+  }
+
+  // Single block still failing after retries — give up on it (returns empty).
+  console.warn(`[getLogsAdaptive] gave up on block range ${lo}-${hi} after retries`);
+  return [];
 }
 
 function sleep(ms: number): Promise<void> {
