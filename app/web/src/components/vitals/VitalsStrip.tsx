@@ -154,11 +154,6 @@ export default function VitalsStrip() {
           <VitalCard
             label="SUPPLY"
             primary={supply?.value != null ? formatSLVR(supply.value) : "—"}
-            secondary={
-              supply?.value2 != null
-                ? `${formatSLVR(supply.value2)} total · 500K max`
-                : undefined
-            }
             colorVar="--color-supply"
             snapshotAt={supply?.snapshot_at}
             blockNumber={supply?.block_number}
