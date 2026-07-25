@@ -164,7 +164,7 @@ async function computeStakingApr(
   totalWeight: number,
   market: { eth_usd: number; slvr_usd: number }
 ): Promise<StakingAprResult | null> {
-  for (const days of [7, 3, 1]) {
+  for (const days of [1, 2, 3, 7]) {
     const wBlocks = BigInt(Math.round(days * BLOCKS_PER_DAY));
     const oldBlock = headBlock > wBlocks ? headBlock - wBlocks : 1n;
 

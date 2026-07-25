@@ -184,12 +184,13 @@ async function build(): Promise<StakingRewardsResponse> {
   const rpwHead = rpwHeadRaw;
   const totalWeight = Number(totalWeightRaw) / WAD;
 
-  // 3. Try trailing windows: 7d → 3d → 1d
+  // 3. Trailing window: 24h primary (matches slvr.fun's APR) → 2d/3d/7d fallback
+  //    only if a quiet 24h had zero distributions.
   let windowDays = 0;
   let rpwOld: bigint = 0n;
   let oldBlock = 0n;
 
-  for (const days of [7, 3, 1]) {
+  for (const days of [1, 2, 3, 7]) {
     const wBlocks = BigInt(Math.round(days * BLOCKS_PER_DAY));
     const candidateBlock = headBlock > wBlocks ? headBlock - wBlocks : 1n;
     const result = await archivalRpw(candidateBlock);
