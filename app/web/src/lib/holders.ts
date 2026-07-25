@@ -50,6 +50,19 @@ function holdersLabel(address: string, fallback: string | null): string | null {
   return HOLDERS_LABEL_OVERRIDES[address.toLowerCase()] ?? getLabel(address) ?? fallback;
 }
 
+/**
+ * True ONLY for curated protocol addresses — our holders-context overrides
+ * (Unclaimed SLVR) or the global contract registry (vote escrow, LP, DEX,
+ * vesting, treasury, …). Deliberately NOT `isContract`: contracts we haven't
+ * catalogued (e.g. FOMO wallets, Blockscout-named contracts) are treated as
+ * real holders and stay in the rankings.
+ */
+function isProtocolAddress(address: string): boolean {
+  return (
+    address.toLowerCase() in HOLDERS_LABEL_OVERRIDES || getLabel(address) !== null
+  );
+}
+
 /** Composition of an economic holder's total (SLVR). Non-zero parts only shown. */
 export interface HolderComposition {
   /** Raw in-wallet SLVR (after protocol pools are reattributed away). */
@@ -65,6 +78,8 @@ export interface HolderRow {
   address: string;
   label: string | null;
   isContract: boolean;
+  /** Curated protocol address (vote escrow, unclaimed pool, LP, DEX, vesting…). */
+  isProtocol: boolean;
   balanceSlvr: number;
   pctOfSupply: number;
   /** Only present in economic mode: breakdown of balanceSlvr by source. */
@@ -109,6 +124,7 @@ async function fetchHolders(): Promise<HoldersData> {
       // global label, then Blockscout on-chain name.
       label: holdersLabel(h.address, h.onchainName),
       isContract: h.isContract,
+      isProtocol: isProtocolAddress(h.address),
       balanceSlvr: Number(h.balanceRaw) / scale,
       pctOfSupply: pctOf(h.balanceRaw),
     }));
@@ -242,6 +258,7 @@ async function fetchEconomicHolders(): Promise<HoldersData> {
     address: r.a.address,
     label: holdersLabel(r.a.address, r.a.onchainName),
     isContract: r.a.isContract,
+    isProtocol: isProtocolAddress(r.a.address),
     balanceSlvr: r.total,
     pctOfSupply: pctOfTotal(r.total),
     composition: {

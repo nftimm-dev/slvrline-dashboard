@@ -89,14 +89,15 @@ export default function HoldersView() {
 
   const failed = !!error;
 
-  // Split the ranked list: individual wallets (the real "holders") vs protocol
-  // contracts (vote escrow, unclaimed pools, LP pairs, DEX, vesting, treasury).
-  // Protocol addresses get their own section rather than dominating the rankings.
+  // Split the ranked list on isProtocol — only CURATED protocol addresses (vote
+  // escrow, unclaimed pools, LP pairs, DEX, vesting, treasury) move to their own
+  // section. Uncatalogued contracts (FOMO wallets, Blockscout-named contracts)
+  // are real holders and stay in the rankings.
   const allRows = data?.top ?? [];
   const wallets: HolderRow[] = allRows
-    .filter((h) => !h.isContract)
+    .filter((h) => !h.isProtocol)
     .map((h, i) => ({ ...h, rank: i + 1 }));
-  const contracts: HolderRow[] = allRows.filter((h) => h.isContract);
+  const protocolRows: HolderRow[] = allRows.filter((h) => h.isProtocol);
 
   // Concentration among real holders only (recomputed client-side from wallets).
   const walletTop10Pct = wallets
@@ -293,16 +294,16 @@ export default function HoldersView() {
       </Panel>
 
       {/* Protocol addresses — their own section, deliberately not "holders" */}
-      {!failed && contracts.length > 0 && (
+      {!failed && protocolRows.length > 0 && (
         <div style={{ marginTop: 24 }}>
           <Panel
             title="Protocol addresses"
-            note="contracts · not individual holders"
+            note="known protocol contracts · not individual holders"
             flush
           >
             <DataTable<HolderRow>
               columns={contractColumns}
-              rows={contracts}
+              rows={protocolRows}
               rowKey={(h) => h.address}
               emptyMessage="No protocol addresses"
             />
