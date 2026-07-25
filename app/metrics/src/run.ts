@@ -372,8 +372,9 @@ async function crossCheckMinerIndex(): Promise<void> {
   }
 }
 
-// Allow running directly: ts-node src/run.ts
-if (require.main === module) {
+// Allow running directly: ts-node src/run.ts. Guarded so importing computeAndWrite
+// (e.g. from the Vercel cron route) does not execute the CLI path.
+if (typeof require !== "undefined" && require.main === module) {
   computeAndWrite()
     .then(() => {
       sql.end();

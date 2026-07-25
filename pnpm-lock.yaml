@@ -51,6 +51,9 @@ importers:
 
   app/web:
     dependencies:
+      '@slvrline/metrics':
+        specifier: workspace:*
+        version: link:../metrics
       '@tailwindcss/postcss':
         specifier: ^4.3.3
         version: 4.3.3

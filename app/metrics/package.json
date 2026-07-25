@@ -2,6 +2,9 @@
   "name": "@slvrline/metrics",
   "version": "0.1.0",
   "private": true,
+  "exports": {
+    "./run": "./src/run.ts"
+  },
   "scripts": {
     "run-once": "ts-node src/run.ts",
     "backfill": "ts-node src/archival-backfill.ts",
