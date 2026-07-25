@@ -1,18 +1,16 @@
 "use client";
 
-import FreshnessChip from "./FreshnessChip";
-
 interface VitalCardProps {
   label: string;
   primary: string;
   secondary?: string;
-  colorVar: string;
-  snapshotAt?: string;
-  blockNumber?: number | null;
+  colorVar: string; // accent — used for the subtle left border only
   loading?: boolean;
   badge?: React.ReactNode;
+  // Accepted for API compatibility; freshness is now shown once, globally.
+  snapshotAt?: string;
+  blockNumber?: number | null;
   subtext?: string;
-  fullWidth?: boolean;
 }
 
 export default function VitalCard({
@@ -20,92 +18,74 @@ export default function VitalCard({
   primary,
   secondary,
   colorVar,
-  snapshotAt,
-  blockNumber,
   loading = false,
   badge,
-  subtext,
 }: VitalCardProps) {
   return (
     <div
-      className="flex flex-col gap-2 p-4 border min-w-0"
+      className="flex flex-col h-full min-w-0 p-4"
       style={{
         backgroundColor: "var(--color-silver-900)",
         borderRadius: "var(--radius-card)",
-        borderColor: "var(--color-silver-800)",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+        border: "1px solid var(--color-silver-800)",
+        borderLeft: `2px solid var(${colorVar})`,
       }}
     >
-      {/* Label row */}
-      <div className="flex items-center justify-between gap-2 min-w-0">
-        <span
-          className="uppercase tracking-widest flex-shrink-0"
-          style={{
-            fontSize: "0.6875rem",
-            color: "var(--color-silver-400)",
-            fontWeight: 600,
-            letterSpacing: "0.1em",
-          }}
-        >
-          {label}
-        </span>
-        {snapshotAt && (
-          <FreshnessChip snapshotAt={snapshotAt} blockNumber={blockNumber} />
-        )}
-      </div>
+      {/* Label — its own line, quiet */}
+      <span
+        className="uppercase whitespace-nowrap overflow-hidden text-ellipsis"
+        style={{
+          fontSize: "0.625rem",
+          color: "var(--color-silver-400)",
+          fontWeight: 600,
+          letterSpacing: "0.09em",
+        }}
+      >
+        {label}
+      </span>
 
-      {/* Primary value */}
+      {/* Primary value — neutral near-white; the number is the hero, not its colour */}
       {loading ? (
         <div
           className="rounded"
           style={{
-            height: 36,
+            height: 30,
+            marginTop: 8,
             backgroundColor: "var(--color-silver-800)",
             animation: "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
           }}
         />
       ) : (
         <span
-          className="font-mono leading-none overflow-hidden text-ellipsis whitespace-nowrap"
+          className="font-mono whitespace-nowrap overflow-hidden text-ellipsis"
           style={{
-            fontSize: "1.625rem",
+            fontSize: "clamp(1.25rem, 2.1vw, 1.6rem)",
             fontWeight: 700,
-            color: `var(${colorVar})`,
+            color: "var(--color-silver-100)",
             fontVariantNumeric: "tabular-nums",
+            lineHeight: 1.15,
+            marginTop: 6,
           }}
         >
           {primary}
         </span>
       )}
 
-      {/* Badge (e.g. EARLY warning) */}
-      {badge && <div>{badge}</div>}
+      {/* Badge (e.g. SUPPLY progress bar) sits directly under the number */}
+      {badge && <div style={{ marginTop: 8 }}>{badge}</div>}
 
-      {/* Secondary info */}
+      {/* Secondary — pinned to the card bottom so every card shares a baseline */}
       {secondary && (
         <span
+          className="mt-auto whitespace-nowrap overflow-hidden text-ellipsis"
           style={{
-            fontSize: "0.75rem",
+            fontSize: "0.6875rem",
             color: "var(--color-silver-400)",
-            lineHeight: 1.4,
+            paddingTop: 10,
           }}
         >
           {secondary}
         </span>
-      )}
-
-      {/* Subtext (e.g. APR context disclaimer) */}
-      {subtext && (
-        <p
-          style={{
-            fontSize: "0.6875rem",
-            color: "var(--color-silver-400)",
-            lineHeight: 1.5,
-            marginTop: 2,
-          }}
-        >
-          {subtext}
-        </p>
       )}
     </div>
   );

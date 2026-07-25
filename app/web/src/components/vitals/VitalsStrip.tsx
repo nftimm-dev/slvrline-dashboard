@@ -8,6 +8,7 @@ import {
   formatUSD,
   formatRunway,
 } from "@/lib/format";
+import FreshnessChip from "./FreshnessChip";
 
 function SupplyBar({
   circulating,
@@ -67,9 +68,20 @@ export default function VitalsStrip() {
   const staked = data?.total_staked_slvr ?? null;
   const runway = data?.runway_months ?? null;
   const price = data?.price ?? null;
+  const fresh = apr ?? supply ?? staked ?? runway;
 
   return (
     <section className="pt-8 pb-6">
+      {/* Single, global freshness indicator for the whole strip */}
+      <div
+        className="flex items-center justify-end gap-1.5 mb-3"
+        style={{ fontSize: "0.6875rem", color: "var(--color-silver-400)" }}
+      >
+        <span>Updated</span>
+        {fresh?.snapshot_at && (
+          <FreshnessChip snapshotAt={fresh.snapshot_at} blockNumber={fresh.block_number} />
+        )}
+      </div>
       {/*
         Mobile: 2-col grid
         APR card: span-2 on mobile, span-1 on sm+
@@ -170,7 +182,8 @@ export default function VitalsStrip() {
 
       <style>{`
         .vitals-grid {
-          grid-template-columns: repeat(2, 1fr);
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          align-items: stretch;
         }
         .vitals-apr-col {
           grid-column: span 2;
@@ -180,7 +193,7 @@ export default function VitalsStrip() {
         }
         @media (min-width: 640px) {
           .vitals-grid {
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(3, minmax(0, 1fr));
           }
           .vitals-apr-col {
             grid-column: span 1;
@@ -191,7 +204,7 @@ export default function VitalsStrip() {
         }
         @media (min-width: 1024px) {
           .vitals-grid {
-            grid-template-columns: repeat(5, 1fr);
+            grid-template-columns: repeat(5, minmax(0, 1fr));
           }
         }
       `}</style>
