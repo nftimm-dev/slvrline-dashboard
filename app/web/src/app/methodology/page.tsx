@@ -320,9 +320,12 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
         {/* Section 2: Total SLVR Staked */}
         <MetricSection title="Total SLVR Staked">
           <p style={{ fontSize: "0.875rem", color: "var(--color-silver-300)", lineHeight: 1.6 }}>
-            Sum of all SLVR locked across the veSLVR vote-escrow contract and
-            the LP staking contract. Broken down into permanent locks (never
-            unlock) vs. time-decaying locks.
+            On-chain sum of every <em>active</em> veSLVR vote-escrow lock
+            (permanent + time-locked). We enumerate all lock NFTs, read each
+            lock&apos;s current state directly from the contract, and sum the
+            live amounts — withdrawn or converted locks read zero and drop out
+            automatically. Broken down into permanent locks (never unlock) vs.
+            time-decaying locks.
           </p>
 
           <div>
@@ -342,10 +345,18 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
                 lineHeight: 1.6,
               }}
             >
-              <code>{`total_staked = veSLVR.totalLocked() + lpStaking.totalDeposited()
-permanent    = veSLVR positions where unlock_time = 0
+              <code>{`tokenIds     = every ve lock ever minted   (ERC-721 Transfer from 0x0)
+for each id: (amount, lockStart, lockEnd, permanent, …) = locks(id)
+total_staked = Σ amount   where amount > 0            (active locks only)
+permanent    = Σ amount   where permanent OR lockEnd = 0
 timelocked   = total_staked − permanent`}</code>
             </pre>
+            <p style={{ fontSize: "0.8125rem", color: "var(--color-silver-400)", marginTop: 8, lineHeight: 1.6 }}>
+              Reading current on-chain state (rather than replaying events)
+              means withdrawals and permanent-conversions are handled for free.
+              Permanent locks <em>burn</em> the underlying SLVR, so their amount
+              also appears in the &ldquo;emitted&rdquo; figure below.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-4">
@@ -371,11 +382,19 @@ timelocked   = total_staked − permanent`}</code>
         </MetricSection>
 
         {/* Section 3: Circulating Supply */}
-        <MetricSection title="Circulating Supply">
+        <MetricSection title="Circulating Supply + Emitted">
           <p style={{ fontSize: "0.875rem", color: "var(--color-silver-300)", lineHeight: 1.6 }}>
-            On-chain <code className="font-mono" style={{ fontSize: "0.75rem" }}>totalSupply()</code> minus tokens
-            held in exclusion addresses (team vesting, growth fund). Hard cap:
-            500,000 SLVR.
+            <strong>Circulating</strong> is on-chain{" "}
+            <code className="font-mono" style={{ fontSize: "0.75rem" }}>totalSupply()</code>{" "}
+            minus tokens held in exclusion addresses (team vesting, growth
+            fund). <strong>Emitted</strong> is the true total ever minted from
+            the 500,000 hard cap:{" "}
+            <code className="font-mono" style={{ fontSize: "0.75rem" }}>totalSupply()</code>{" "}
+            <em>plus cumulative burns</em>. Permanent ve-locks burn the
+            underlying SLVR, so a large amount that was emitted from the budget
+            no longer shows up in <code className="font-mono" style={{ fontSize: "0.75rem" }}>totalSupply()</code>.
+            Measuring cap progress by <code className="font-mono" style={{ fontSize: "0.75rem" }}>totalSupply()</code>{" "}
+            alone would understate it.
           </p>
 
           <div>
@@ -395,10 +414,17 @@ timelocked   = total_staked − permanent`}</code>
                 lineHeight: 1.6,
               }}
             >
-              <code>{`circulating = totalSupply() − balanceOf(teamVesting) − balanceOf(growthFund)
-total_emitted = totalSupply()
-max_supply    = 500,000 SLVR (hard cap)`}</code>
+              <code>{`circulating    = totalSupply() − balanceOf(teamVesting) − balanceOf(growthFund)
+cumulativeBurned = Σ value of Transfer(to = 0x0) on the SLVR token
+emitted        = totalSupply() + cumulativeBurned      (total ever minted)
+emitted_pct    = emitted / 500,000                     (progress toward cap)
+max_supply     = 500,000 SLVR (hard cap)`}</code>
             </pre>
+            <p style={{ fontSize: "0.8125rem", color: "var(--color-silver-400)", marginTop: 8, lineHeight: 1.6 }}>
+              The vitals &ldquo;% mined / 500K&rdquo; progress bar uses{" "}
+              <code className="font-mono" style={{ fontSize: "0.75rem" }}>emitted_pct</code>,
+              not <code className="font-mono" style={{ fontSize: "0.75rem" }}>totalSupply / cap</code>.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-4">
@@ -426,9 +452,12 @@ max_supply    = 500,000 SLVR (hard cap)`}</code>
         {/* Section 4: Mining Runway */}
         <MetricSection title="Mining Runway">
           <p style={{ fontSize: "0.875rem", color: "var(--color-silver-300)", lineHeight: 1.6 }}>
-            Projected months until the 500,000 SLVR hard cap is reached at the
-            current 30-day emission rate. Emissions come exclusively from Grid
-            Lottery V2 round resolutions.
+            Projected months until the 500,000 SLVR emission budget is exhausted,
+            based on <strong>gross</strong> emission. Because burns (mostly
+            permanent ve-locks) currently exceed mints, <em>net</em> supply
+            change is negative and would give a meaningless runway — so we
+            measure how fast SLVR is <em>minted</em> out of the budget, against
+            how much of the budget is <em>emitted</em> (not just current supply).
           </p>
 
           <div>
@@ -448,11 +477,17 @@ max_supply    = 500,000 SLVR (hard cap)`}</code>
                 lineHeight: 1.6,
               }}
             >
-              <code>{`remaining       = 500,000 − total_emitted
-emission_30d    = SLVR emitted in last 30 days (from lottery events)
-runway_months   = remaining / (emission_30d / 30 × 30)
-               = remaining / emission_30d × months_per_month`}</code>
+              <code>{`emitted(t)     = totalSupply(t) + cumulativeBurned(t)
+remaining      = 500,000 − emitted(now)
+window         = [ max(genesis, now − 30d), now ]
+grossEmitted   = emitted(now) − emitted(window_start)   (SLVR minted in window)
+perDayGross    = grossEmitted / window_days
+runway_months  = remaining / perDayGross / 30.44`}</code>
             </pre>
+            <p style={{ fontSize: "0.8125rem", color: "var(--color-silver-400)", marginTop: 8, lineHeight: 1.6 }}>
+              If <code className="font-mono" style={{ fontSize: "0.75rem" }}>perDayGross ≤ 0</code>{" "}
+              the estimate is withheld (insufficient data).
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-4">

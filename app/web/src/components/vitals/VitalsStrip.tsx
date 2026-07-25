@@ -9,18 +9,22 @@ import {
   formatRunway,
 } from "@/lib/format";
 import FreshnessChip from "./FreshnessChip";
+import { useHistory, type UseHistoryResult } from "@/hooks/useHistory";
 
 function SupplyBar({
   circulating,
-  total,
+  emitted,
   max,
 }: {
   circulating: number;
-  total: number;
+  emitted: number;
   max: number;
 }) {
+  // Progress toward the 500K emission cap is measured by EMITTED (totalSupply +
+  // cumulative burns), NOT totalSupply — burned/permanent-locked SLVR was still emitted
+  // from the budget. Circulating is shown as a lighter inset segment of the emitted bar.
+  const emittedPct = Math.min(100, (emitted / max) * 100);
   const circulatingPct = Math.min(100, (circulating / max) * 100);
-  const totalPct = Math.min(100, (total / max) * 100);
   return (
     <div className="mt-1">
       <div
@@ -30,7 +34,7 @@ function SupplyBar({
         <div
           style={{
             height: "100%",
-            width: `${totalPct}%`,
+            width: `${emittedPct}%`,
             backgroundColor: "var(--color-silver-700)",
             borderRadius: 999,
             position: "relative",
@@ -40,8 +44,8 @@ function SupplyBar({
             style={{
               height: "100%",
               width:
-                circulatingPct > 0 && totalPct > 0
-                  ? `${(circulatingPct / totalPct) * 100}%`
+                circulatingPct > 0 && emittedPct > 0
+                  ? `${(circulatingPct / emittedPct) * 100}%`
                   : "0%",
               backgroundColor: "var(--color-supply)",
               borderRadius: 999,
@@ -53,8 +57,10 @@ function SupplyBar({
         className="flex justify-between mt-1"
         style={{ fontSize: "0.5625rem", color: "var(--color-silver-400)" }}
       >
-        <span>{circulatingPct.toFixed(1)}% circ / 500K</span>
-        <span>{totalPct.toFixed(1)}% emitted</span>
+        <span>{emittedPct.toFixed(1)}% mined / 500K</span>
+        <span>
+          {formatSLVR(emitted)} mined · 500K cap
+        </span>
       </div>
     </div>
   );
@@ -69,6 +75,24 @@ export default function VitalsStrip() {
   const runway = data?.runway_months ?? null;
   const price = data?.price ?? null;
   const fresh = apr ?? supply ?? staked ?? runway;
+
+  // Emitted (totalSupply + cumulative burns) comes through circulating_supply.metadata.
+  // This — not totalSupply — drives the "% mined / 500K" progress toward the cap.
+  const supplyMeta = supply?.metadata as
+    | { emitted_human?: number; emitted_pct?: number }
+    | null
+    | undefined;
+  const emittedHuman =
+    typeof supplyMeta?.emitted_human === "number" ? supplyMeta.emitted_human : null;
+
+  // Faint background trend for the cards that have a time-series.
+  const aprHist = useHistory("dividends_apr", "24h");
+  const supHist = useHistory("circulating_supply", "24h");
+  const runHist = useHistory("runway_months", "24h");
+  const sparkOf = (h: UseHistoryResult): number[] =>
+    (h.data?.rows ?? [])
+      .map((r) => r.v)
+      .filter((v): v is number => v != null && Number.isFinite(v));
 
   return (
     <section className="pt-8 pb-6">
@@ -104,6 +128,7 @@ export default function VitalsStrip() {
             snapshotAt={apr?.snapshot_at}
             blockNumber={apr?.block_number}
             loading={isLoading && !apr}
+            sparkline={sparkOf(aprHist)}
           />
         </div>
 
@@ -138,11 +163,12 @@ export default function VitalsStrip() {
             snapshotAt={supply?.snapshot_at}
             blockNumber={supply?.block_number}
             loading={isLoading && !supply}
+            sparkline={sparkOf(supHist)}
             badge={
               supply?.value != null && supply?.value3 != null ? (
                 <SupplyBar
                   circulating={supply.value}
-                  total={supply.value2 ?? supply.value}
+                  emitted={emittedHuman ?? supply.value2 ?? supply.value}
                   max={supply.value3}
                 />
               ) : undefined
@@ -164,6 +190,7 @@ export default function VitalsStrip() {
             snapshotAt={runway?.snapshot_at}
             blockNumber={runway?.block_number}
             loading={isLoading && !runway}
+            sparkline={sparkOf(runHist)}
           />
         </div>
 

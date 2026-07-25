@@ -18,6 +18,7 @@ export interface VitalsData {
     value3: number | null;
     snapshot_at: string;
     block_number: number | null;
+    metadata?: Record<string, unknown> | null;
   } | null;
   runway_months: {
     value: number;
