@@ -22,7 +22,7 @@ export default function AprChartSection() {
         >
           Dividends APR{" "}
           <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--color-silver-400)" }}>
-            · V1 (pre-23 Jul) → V2 reset at migration · log scale
+            · 24h rolling · since 22 Jul migration
           </span>
         </h2>
         <TimeRangeSelector value={range} onChange={setRange} />
@@ -41,7 +41,6 @@ export default function AprChartSection() {
           isLoading={isLoading}
           series={[{ key: "v", color: "#5eead4", label: "APR" }]}
           format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + "%"}
-          logScale
         />
       </div>
     </section>

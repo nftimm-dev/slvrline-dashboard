@@ -1,38 +1,38 @@
 /**
- * Dividends APR formula — index-delta method via archival eth_call.
+ * Dividends APR formula — trailing-24h index-delta method via archival eth_call.
  *
- * APR = (minerIndex(head) − minerIndex(block@now−W)) / 1e18 × (SECONDS_PER_YEAR / W)
+ * APR = (minerIndex(head) − minerIndex(block@now−24h)) / 1e18 × (SECONDS_PER_YEAR / windowSeconds)
  *
- * Where W = min(7 days, age of the active contract since its deploy).
+ * Where windowSeconds = min(24h, age of the active contract since its V2 deploy).
  *
- * Source: METHODOLOGY.md §APR, RESEARCH.md §4c.
- * The minerIndex is the cumulative refining fee per 1e18 unclaimed SLVR.
- * Δindex/WAD is the exact fractional return for a continuously-unclaimed miner over window W.
+ * The 24h trailing window provides a stable, fair rolling yield that:
+ *   - Eliminates the launch spike that appeared during the first 7 days post-migration.
+ *   - Reflects actual recent dividend accumulation without anchoring to launch.
+ *   - Returns null (dataStatus="early") for the first 24h after migration so
+ *     the chart never shows a misleading spike at launch.
  *
  * V1/V2 accumulators are INDEPENDENT — never mix them:
  *   - GridLotteryV1 (0x284Eb4016305...): accumulator active before block 16,764,101.
  *   - GridLotteryV2 (0xB0Cc994Ce4E8...): accumulator RESET to 0 at block 16,764,101.
  *
  * For the live headline (computeDividendsApr):
- *   - Always use V2's accumulator.
- *   - Window = min(7d, seconds since V2 deploy). When < 7d the figure is labeled "early".
- *   - Once V2 has >= 7 days of data the window becomes the standard 7-day rolling figure.
- *   - The 7-day window matures on ~2026-07-29.
+ *   - Always use V2's accumulator (post-migration).
+ *   - If age < 24h → return apr: null, aprPercent: null, dataStatus: "early".
+ *   - If age >= 24h → compute trailing-24h APR, dataStatus: "ok".
  *
  * For historical samples (computeHistoricalAprForBlock):
- *   - If block < 16,764,101 → use V1, window = min(7d, block age since V1 deploy).
- *   - If block >= 16,764,101 → use V2, window = min(7d, block age since V2 deploy).
+ *   - Only called for blocks >= V2 deploy (backfill starts at migration block).
+ *   - If block age < 24h since V2 deploy → return null, dataStatus: "early".
+ *   - If block age >= 24h → compute trailing-24h APR using V2 accumulator.
  *
  * selector: minerIndex() = 0x9806b4d2 (confirmed in RESEARCH.md)
  */
 
 import {
-  LOTTERY_V1,
   LOTTERY_V2,
   LOTTERY_V2_DEPLOY_BLOCK,
-  DEPLOY_BLOCK_TOKEN,
   WAD,
-  APR_WINDOW_SECONDS,
+  APR_TRAIL_SECONDS,
   SECONDS_PER_YEAR,
 } from "../constants";
 import { archivalCall, archivalGetBlock, decodeUint256 } from "../rpc";
@@ -58,9 +58,9 @@ export type AprResult = {
 };
 
 /**
- * Compute the headline (current) dividends APR using V2's available window.
- * Window = min(7 days, seconds elapsed since V2 deploy block).
- * Returns a non-null APR with dataStatus="early" while V2 is < 7 days old.
+ * Compute the headline (current) dividends APR using the trailing-24h window on V2.
+ * Returns apr: null / dataStatus: "early" if V2 is < 24h old (prevents launch spike).
+ * Once V2 age >= 24h, returns the real trailing-24h annualised rate.
  */
 export async function computeDividendsApr(
   asOfBlock?: bigint
@@ -76,10 +76,29 @@ export async function computeDividendsApr(
   }
   const v2DeployTs = v2DeployBlockInfo.timestamp;
 
-  // Effective window: clamped to V2's age (at minimum 10 minutes to avoid division by zero)
+  // Age of V2 at this moment
   const v2AgeSeconds = Number(nowTs - v2DeployTs);
-  const effectiveWindowSeconds = Math.min(APR_WINDOW_SECONDS, Math.max(v2AgeSeconds, 600));
-  const isEarlyWindow = effectiveWindowSeconds < APR_WINDOW_SECONDS;
+
+  // If V2 is less than 24h old, return null so there is no launch spike
+  if (v2AgeSeconds < APR_TRAIL_SECONDS) {
+    return {
+      apr: null,
+      aprPercent: null,
+      deltaIndex: null,
+      indexNow: null,
+      indexWindowStart: null,
+      blockNow: nowBlock,
+      blockWindowStart: null,
+      tsWindowStart: null,
+      windowSeconds: v2AgeSeconds,
+      windowDays: Math.round((v2AgeSeconds / 86400) * 10) / 10,
+      contractVersion: "v2",
+      dataStatus: "early",
+    };
+  }
+
+  // Trailing-24h window (full)
+  const effectiveWindowSeconds = APR_TRAIL_SECONDS;
 
   // Target timestamp for window start
   const tsWindowStart = nowTs - BigInt(effectiveWindowSeconds);
@@ -114,7 +133,7 @@ export async function computeDividendsApr(
       windowSeconds: effectiveWindowSeconds,
       windowDays: Math.round((effectiveWindowSeconds / 86400) * 10) / 10,
       contractVersion: "v2",
-      dataStatus: isEarlyWindow ? "early" : "ok",
+      dataStatus: "ok",
     };
   }
 
@@ -133,50 +152,68 @@ export async function computeDividendsApr(
     windowSeconds: effectiveWindowSeconds,
     windowDays: Math.round((effectiveWindowSeconds / 86400) * 10) / 10,
     contractVersion: "v2",
-    dataStatus: isEarlyWindow ? "early" : "ok",
+    dataStatus: "ok",
   };
 }
 
 /**
- * Compute dividends APR for a historical backfill block.
- * Routes to V1 or V2 based on whether the sample block is before or after migration.
+ * Compute dividends APR for a historical backfill block (V2 only, post-migration).
+ * Returns null APR with dataStatus="early" for the first 24h after migration.
  *
- * @param sampleBlock  The block number being sampled
+ * @param sampleBlock  The block number being sampled (must be >= V2 deploy block)
  * @param sampleTs     The Unix timestamp of sampleBlock
  */
 export async function computeHistoricalAprForBlock(
   sampleBlock: bigint,
   sampleTs: bigint
 ): Promise<AprResult> {
-  // Determine which contract was active at sampleBlock
-  const useV2 = sampleBlock >= LOTTERY_V2_DEPLOY_BLOCK;
-  const contract = useV2 ? LOTTERY_V2 : LOTTERY_V1;
-  const contractDeployBlock = useV2 ? LOTTERY_V2_DEPLOY_BLOCK : DEPLOY_BLOCK_TOKEN;
-  const contractVersion: "v1" | "v2" = useV2 ? "v2" : "v1";
+  // All backfill samples are post-migration; always use V2 accumulator
+  const contract = LOTTERY_V2;
+  const contractDeployBlock = LOTTERY_V2_DEPLOY_BLOCK;
+  const contractVersion: "v1" | "v2" = "v2";
 
-  // Fetch deploy block timestamp to compute contract age at sampleBlock
+  // Fetch deploy block timestamp to compute V2 age at sampleBlock
   const deployBlockInfo = await archivalGetBlock(contractDeployBlock);
   if (!deployBlockInfo) {
-    throw new Error(`Failed to fetch deploy block ${contractDeployBlock}`);
+    throw new Error(`Failed to fetch V2 deploy block ${contractDeployBlock}`);
   }
   const contractDeployTs = deployBlockInfo.timestamp;
 
-  // Effective window: min(7d, age of contract at sampleBlock)
+  // Age of V2 contract at sampleBlock
   const contractAgeAtSample = Number(sampleTs - contractDeployTs);
-  const effectiveWindowSeconds = Math.min(APR_WINDOW_SECONDS, Math.max(contractAgeAtSample, 600));
-  const isEarlyWindow = effectiveWindowSeconds < APR_WINDOW_SECONDS;
+
+  // If age < 24h: return null so the first 24h are blank on the chart (no spike)
+  if (contractAgeAtSample < APR_TRAIL_SECONDS) {
+    return {
+      apr: null,
+      aprPercent: null,
+      deltaIndex: null,
+      indexNow: null,
+      indexWindowStart: null,
+      blockNow: sampleBlock,
+      blockWindowStart: null,
+      tsWindowStart: null,
+      windowSeconds: contractAgeAtSample,
+      windowDays: Math.round((contractAgeAtSample / 86400) * 10) / 10,
+      contractVersion,
+      dataStatus: "early",
+    };
+  }
+
+  // Trailing-24h window (full)
+  const effectiveWindowSeconds = APR_TRAIL_SECONDS;
 
   // Target timestamp for window start
   const tsWindowStart = sampleTs - BigInt(effectiveWindowSeconds);
 
-  // Resolve block at window start — never before the contract's deploy block
+  // Resolve block at window start — never before the V2 deploy block
   const windowStartBlockInfo = await resolveBlockAtTimestampFast(tsWindowStart);
   const blockWindowStart =
     windowStartBlockInfo.block < contractDeployBlock
       ? contractDeployBlock
       : windowStartBlockInfo.block;
 
-  // Read minerIndex at both blocks via archival eth_call on the active contract
+  // Read minerIndex at both blocks via archival eth_call on V2
   const [rawNow, rawWindowStart] = await Promise.all([
     archivalCall(contract, MINER_INDEX_SELECTOR, sampleBlock),
     archivalCall(contract, MINER_INDEX_SELECTOR, blockWindowStart),
@@ -199,7 +236,7 @@ export async function computeHistoricalAprForBlock(
       windowSeconds: effectiveWindowSeconds,
       windowDays: Math.round((effectiveWindowSeconds / 86400) * 10) / 10,
       contractVersion,
-      dataStatus: isEarlyWindow ? "early" : "ok",
+      dataStatus: "ok",
     };
   }
 
@@ -217,6 +254,6 @@ export async function computeHistoricalAprForBlock(
     windowSeconds: effectiveWindowSeconds,
     windowDays: Math.round((effectiveWindowSeconds / 86400) * 10) / 10,
     contractVersion,
-    dataStatus: isEarlyWindow ? "early" : "ok",
+    dataStatus: "ok",
   };
 }

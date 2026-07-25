@@ -24,7 +24,7 @@ import { computeRunway } from "./formulas/runway";
 import { computeStaking } from "./formulas/staking";
 import { computeLotteryRoundState } from "./formulas/lottery";
 import { getHead } from "./block-resolver";
-import { APR_WINDOW_SECONDS, SLVR_CAP } from "./constants";
+import { SLVR_CAP } from "./constants";
 
 export async function computeAndWrite(): Promise<void> {
   const now = new Date();
@@ -51,19 +51,10 @@ export async function computeAndWrite(): Promise<void> {
         block_window_start: apr.blockWindowStart?.toString() ?? null,
         ts_window_start: apr.tsWindowStart?.toString() ?? null,
         data_status: apr.dataStatus,
-        // "early": V2 < 7d old; window = min(7d, V2 age); matures ~2026-07-29
         basis: "v2",
+        method: "trailing_24h",
+        window_hours: 24,
         source: "archival_eth_call",
-        // --- Headline policy (option C) ---
-        // V2's dividend accumulator RESET at the 22 Jul migration, so its early
-        // annualized rate is a one-off launch burst, not a sustainable yield.
-        // Until V2 has a full 7-day window (~29 Jul) the HEADLINE shows V1's last
-        // stable 7-day rate as a reference. `value` above stays the true V2 figure
-        // so the history chart remains accurate.
-        v1_reference_apr: 5008, // immutable — V1 (retired) final stable 7-day rolling APR (%)
-        v2_live_annualized: apr.aprPercent,
-        headline_mode: apr.dataStatus === "ok" ? "v2" : "v1_reference",
-        stable_from: "2026-07-29",
       },
       snapshotAt: now,
       blockNumber: headBlock,

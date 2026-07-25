@@ -70,6 +70,10 @@ export async function GET(request: NextRequest) {
 
   const { metric, range } = parsed.data;
 
+  // Hard floor: never return data before the V2 migration (2026-07-22T21:53:52Z).
+  // This rebases all charts to the GridLottery V2 deploy, ignoring pre-migration history.
+  const MIGRATION_FLOOR = "2026-07-22T21:53:52Z";
+
   try {
     const db = getDb();
     let rows: HistoryRow[];
@@ -85,6 +89,7 @@ export async function GET(request: NextRequest) {
         FROM metrics.metric_snapshots
         WHERE metric_name = ${metric}
           AND value IS NOT NULL
+          AND snapshot_at >= ${MIGRATION_FLOOR}::timestamptz
         ORDER BY snapshot_at ASC
       `;
     } else {
@@ -99,7 +104,7 @@ export async function GET(request: NextRequest) {
         FROM metrics.metric_snapshots
         WHERE metric_name = ${metric}
           AND value IS NOT NULL
-          AND snapshot_at >= NOW() - ${`${interval}`}::interval
+          AND snapshot_at >= GREATEST(NOW() - ${`${interval}`}::interval, ${MIGRATION_FLOOR}::timestamptz)
         ORDER BY snapshot_at ASC
       `;
     }

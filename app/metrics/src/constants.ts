@@ -48,8 +48,10 @@ export const AUDIT_ADDRESSES = [
   { address: "0x11111972FE1b7e52D36609bCaF8702c65b025B46", label: "Protocol Deployer" },
 ] as const;
 
-// APR window: 7-day rolling
+// APR window: 7-day rolling (kept for reference; not used in active APR computation)
 export const APR_WINDOW_SECONDS = 604_800; // 7 days
+// APR trailing window: 24-hour rolling (replaces the 7d launch-anchored window)
+export const APR_TRAIL_SECONDS = 86_400; // 24 hours
 export const SECONDS_PER_YEAR = 31_536_000;
 
 // 30d window for emission rate

@@ -12,7 +12,7 @@
  */
 
 import { archivalGetBlock } from "./rpc";
-import { DEPLOY_BLOCK_TOKEN, APPROX_BLOCKS_PER_SEC } from "./constants";
+import { DEPLOY_BLOCK_TOKEN, LOTTERY_V2_DEPLOY_BLOCK, APPROX_BLOCKS_PER_SEC } from "./constants";
 
 // Cache head block to avoid repeated fetches within a run
 let _headCache: { block: bigint; timestamp: bigint; fetchedAt: number } | null = null;
@@ -124,10 +124,11 @@ export async function resolveBlockAtTimestampFast(
 }
 
 /**
- * Generate evenly-spaced sample block numbers from genesis to head for historical backfill.
+ * Generate evenly-spaced sample block numbers from the V2 migration to head for historical backfill.
+ * Starts at block 16,764,101 (GridLottery V2 deploy, 2026-07-22) — pre-migration data is dropped.
  * Returns array of { block, timestamp } pairs at ~stepSeconds cadence.
  *
- * Fast path: uses linear interpolation between genesis and head to estimate block numbers.
+ * Fast path: uses linear interpolation between the migration block and head to estimate block numbers.
  * At 100ms/block, the linear estimate is very accurate. We batch fetch blocks in parallel
  * (10 at a time) to verify timestamps. Total RPC calls = ceil(N/10) batches.
  */
@@ -135,12 +136,13 @@ export async function generateSampleBlocks(
   stepSeconds: number
 ): Promise<Array<{ block: bigint; timestamp: bigint }>> {
   const head = await getHead();
-  const genesisBlock = await archivalGetBlock(DEPLOY_BLOCK_TOKEN);
-  if (!genesisBlock) throw new Error("Failed to fetch genesis block");
+  // Start from the V2 migration block (22 Jul 2026) — not genesis
+  const migrationBlock = await archivalGetBlock(LOTTERY_V2_DEPLOY_BLOCK);
+  if (!migrationBlock) throw new Error("Failed to fetch V2 migration block");
 
-  const genesisTs = genesisBlock.timestamp;
+  const genesisTs = migrationBlock.timestamp;
   const headTs = head.timestamp;
-  const genesisBlockNum = genesisBlock.number;
+  const genesisBlockNum = migrationBlock.number;
   const headBlockNum = head.block;
 
   // Compute linear interpolation factor: blocks per second
@@ -167,12 +169,17 @@ export async function generateSampleBlocks(
         : estimated;
   });
 
+  // Clamp all estimated blocks to be >= migration block (belt-and-suspenders)
+  const clampedBlocks = estimatedBlocks.map((b) =>
+    b < LOTTERY_V2_DEPLOY_BLOCK ? LOTTERY_V2_DEPLOY_BLOCK : b
+  );
+
   // Batch fetch block timestamps in parallel (10 at a time)
   const BATCH_SIZE = 10;
   const results: Array<{ block: bigint; timestamp: bigint }> = [];
 
-  for (let i = 0; i < estimatedBlocks.length; i += BATCH_SIZE) {
-    const batch = estimatedBlocks.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < clampedBlocks.length; i += BATCH_SIZE) {
+    const batch = clampedBlocks.slice(i, i + BATCH_SIZE);
     const fetched = await Promise.allSettled(
       batch.map((b) => archivalGetBlock(b))
     );
