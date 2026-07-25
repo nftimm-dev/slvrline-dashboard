@@ -13,9 +13,9 @@ const CONTRACT_LABELS: Record<string, string> = {
   // Core token
   "0x791229e3ebd6cfdc3d8157f48722684173c29ad9": "SLVR Token",
 
-  // Lottery / game
-  "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71": "Grid Lottery",
-  "0x284eb4016305fa7fbc162fb68f27227271001c7f": "Grid Lottery (Legacy)",
+  // Grid Mining / game
+  "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71": "Grid Mining",
+  "0x284eb4016305fa7fbc162fb68f27227271001c7f": "Grid Mining (Legacy)",
   "0x8c756b6738bdd687c3376c748c63419be0412fdd": "Genesis Game",
 
   // Automation

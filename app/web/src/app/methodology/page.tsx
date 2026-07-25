@@ -65,7 +65,7 @@ export default function MethodologyPage() {
           <div>
             <p style={{ color: "var(--color-silver-300)", fontSize: "0.875rem", marginBottom: 12 }}>
               The annualized yield earned by miners who hold <em>unclaimed</em>{" "}
-              SLVR mining rewards in the Grid Lottery. Funded by a 10% refining
+              SLVR mining rewards in Grid Mining. Funded by a 10% refining
               fee on every miner&apos;s claim — redistributed to all remaining
               unclaimed holders.
             </p>

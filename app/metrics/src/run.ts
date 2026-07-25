@@ -21,10 +21,63 @@ import { writeSnapshot } from "./snapshot";
 import { computeDividendsApr } from "./formulas/apr";
 import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
-import { computeStaking } from "./formulas/staking";
+import { computeStaking, type VeLock } from "./formulas/staking";
 import { computeLotteryRoundState } from "./formulas/lottery";
 import { getHead } from "./block-resolver";
 import { SLVR_CAP } from "./constants";
+
+const SCALE = 1e18;
+const TOP_LOCKERS = 12;
+
+type TopLocker = {
+  owner: string;
+  amount: number;
+  permanent: boolean;
+  lockCount: number;
+};
+
+type SizeBucket = { range: string; count: number; totalSlvr: number };
+
+/** Top 12 owners by aggregate active-lock amount (grouped, summed across their locks). */
+function buildTopLockers(locks: VeLock[]): TopLocker[] {
+  const byOwner = new Map<string, { amount: bigint; count: number; perm: number }>();
+  for (const l of locks) {
+    const cur = byOwner.get(l.owner) ?? { amount: 0n, count: 0, perm: 0 };
+    cur.amount += l.amountRaw;
+    cur.count += 1;
+    if (l.permanent) cur.perm += 1;
+    byOwner.set(l.owner, cur);
+  }
+  return [...byOwner.entries()]
+    .map(([owner, agg]) => ({
+      owner,
+      amount: Number(agg.amount) / SCALE,
+      // A locker is "permanent" iff ALL of their active locks are permanent.
+      permanent: agg.perm === agg.count,
+      lockCount: agg.count,
+    }))
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, TOP_LOCKERS);
+}
+
+/** Histogram of lock sizes: <10 / 10–100 / 100–1k / 1k+ SLVR. */
+function buildSizeBuckets(locks: VeLock[]): SizeBucket[] {
+  const defs = [
+    { range: "<10", lo: 0, hi: 10 },
+    { range: "10–100", lo: 10, hi: 100 },
+    { range: "100–1k", lo: 100, hi: 1000 },
+    { range: "1k+", lo: 1000, hi: Infinity },
+  ];
+  const buckets: SizeBucket[] = defs.map((d) => ({ range: d.range, count: 0, totalSlvr: 0 }));
+  for (const l of locks) {
+    const amt = Number(l.amountRaw) / SCALE;
+    const idx = defs.findIndex((d) => amt >= d.lo && amt < d.hi);
+    const b = buckets[idx >= 0 ? idx : buckets.length - 1];
+    b.count += 1;
+    b.totalSlvr += amt;
+  }
+  return buckets;
+}
 
 export async function computeAndWrite(): Promise<void> {
   const now = new Date();
@@ -174,6 +227,10 @@ export async function computeAndWrite(): Promise<void> {
   // ---- 5. total_staked_slvr ----
   try {
     const staking = await computeStaking(headBlock);
+    // Build display-oriented rollups from the active-lock list so /api/staking can
+    // serve the page instantly from the DB (no on-request chain enumeration).
+    const topLockers = buildTopLockers(staking.activeLocks);
+    const sizeBuckets = buildSizeBuckets(staking.activeLocks);
     await writeSnapshot({
       metricName: "total_staked_slvr",
       // value = total locked; value2 = PERMANENT (card's "N permanent" reads value2);
@@ -188,6 +245,10 @@ export async function computeAndWrite(): Promise<void> {
         active_lock_count: staking.activeLockCount,
         lp_staked_raw: staking.lpStakedRaw.toString(),
         lp_staked_lp_tokens: staking.lpStakedHuman.toFixed(6),
+        // Served directly by /api/staking (DB-backed, <100ms — no chain enumeration).
+        top_lockers: topLockers,
+        size_buckets: sizeBuckets,
+        unique_owners: new Set(staking.activeLocks.map((l) => l.owner)).size,
         source: staking.source,
         note: staking.note,
       },

@@ -4,17 +4,17 @@ import PageHeader from "@/components/analytics/PageHeader";
 import LotteryView from "@/components/lottery/LotteryView";
 
 export const metadata: Metadata = {
-  title: "Lottery — SLVRline",
+  title: "Grid Mining — SLVRline",
   description:
-    "Live GridLottery V2 snapshot on Robinhood Chain: current round, jackpot in ETH, unclaimed rewards pool, cumulative refined, and the miner index.",
+    "Live Grid Mining snapshot on Robinhood Chain: current round, jackpot in ETH, unclaimed rewards pool, cumulative refined, and the miner index.",
 };
 
-export default function LotteryPage() {
+export default function MiningPage() {
   return (
     <main className="py-10">
       <PageContainer>
         <PageHeader
-          title="Grid Lottery"
+          title="Grid Mining"
           subtitle="The live mining engine for SLVR. A snapshot of the current round, jackpot, and the reward pools that drive dividends."
         />
         <LotteryView />

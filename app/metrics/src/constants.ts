@@ -13,7 +13,7 @@ export const WAD = 1_000_000_000_000_000_000n; // 1e18
 export const SLVR_TOKEN = "0x791229E3EbD6CFdC3D8157f48722684173C29aD9" as const;
 export const SLVR_CAP = 500_000n * WAD; // 500,000 SLVR in raw units
 
-// Grid Lottery
+// Grid Mining (contract selectors/vars keep the LOTTERY_ name — internal only)
 export const LOTTERY_V1 = "0x284Eb4016305Fa7FbC162Fb68F27227271001c7f" as const;
 export const LOTTERY_V2 = "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71" as const;
 // Block when V2 was deployed; V2's minerIndex accumulator started fresh here

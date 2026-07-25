@@ -15,6 +15,21 @@ const CACHE_TTL = 300; // 5 min
 const CACHE_KEY = "holders:page";
 const TOP_N = 25;
 
+/**
+ * Holders-CONTEXT label overrides. On the holders table, the Grid Mining
+ * contracts' SLVR balance IS the unclaimed mining-rewards pool — so we label it
+ * as such here (only). This does NOT touch the global getLabel() registry used
+ * elsewhere on the site.
+ */
+const HOLDERS_LABEL_OVERRIDES: Record<string, string> = {
+  "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71": "Unclaimed SLVR", // Grid Mining V2
+  "0x284eb4016305fa7fbc162fb68f27227271001c7f": "Unclaimed SLVR (Legacy)", // Grid Mining V1
+};
+
+function holdersLabel(address: string, fallback: string | null): string | null {
+  return HOLDERS_LABEL_OVERRIDES[address.toLowerCase()] ?? getLabel(address) ?? fallback;
+}
+
 export interface HolderRow {
   rank: number;
   address: string;
@@ -56,8 +71,9 @@ async function fetchHolders(): Promise<HoldersData> {
     .map((h, i) => ({
       rank: i + 1,
       address: h.address,
-      // Prefer our curated label; Blockscout on-chain name is the fallback.
-      label: getLabel(h.address) ?? h.onchainName,
+      // Holders-context override (Grid Mining → "Unclaimed SLVR"), then curated
+      // global label, then Blockscout on-chain name.
+      label: holdersLabel(h.address, h.onchainName),
       isContract: h.isContract,
       balanceSlvr: Number(h.balanceRaw) / scale,
       pctOfSupply: pctOf(h.balanceRaw),

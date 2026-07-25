@@ -28,19 +28,28 @@
  *   ts-node src/archival-backfill.ts --apr-only    (overwrite null dividends_apr rows only)
  */
 
+import {
+  encodeAbiParameters,
+  decodeAbiParameters,
+  parseAbiParameters,
+  toFunctionSelector,
+} from "viem";
 import { sql } from "./db";
 import { writeSnapshot } from "./snapshot";
 import { computeHistoricalAprForBlock } from "./formulas/apr";
 import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
-import { archivalCall, archivalGetBlock, decodeUint256 } from "./rpc";
+import { archivalCall, archivalGetBlock, decodeUint256, getLogsAdaptive, TRANSFER_TOPIC0, ZERO_TOPIC } from "./rpc";
 import { getHead, generateSampleBlocks } from "./block-resolver";
+import { aggregate3, type Call3 } from "./multicall";
 import {
   LOTTERY_V2,
   SLVR_CAP,
   APR_WINDOW_SECONDS,
   BACKFILL_STEP_SECONDS,
   LP_STAKING,
+  VOTE_ESCROW,
+  DEPLOY_BLOCK_TOKEN,
 } from "./constants";
 
 const CURRENT_ROUND_ID_SEL = "0x9cbe5efd";
@@ -321,16 +330,159 @@ async function aprOnlyBackfill(samples: Array<{ block: bigint; timestamp: bigint
   console.log(`[backfill][apr-only] Done. Processed: ${processed}/${samples.length}`);
 }
 
+// ---------------------------------------------------------------------------
+// Staking-only backfill (FIX 2): recompute total_staked_slvr per sample block by
+// reading each ve lock's state AT that block via Multicall3, so the series is a
+// smooth curve (no fake step from mixing old-wrong and corrected snapshots).
+// ---------------------------------------------------------------------------
+
+// locks(uint256) → (uint256 amount, uint256 lockStart, uint256 lockEnd, bool permanent, bool isMaxTime)
+const LOCKS_SEL = toFunctionSelector(
+  "function locks(uint256) view returns (uint256,uint256,uint256,bool,bool)"
+);
+const LOCKS_OUT = parseAbiParameters("uint256, uint256, uint256, bool, bool");
+const UINT256_IN = parseAbiParameters("uint256");
+
+/** Enumerate every ve lock tokenId ever minted (ERC-721 Transfer from 0x0). */
+async function enumerateVeTokenIds(toBlock: bigint): Promise<string[]> {
+  const mintLogs = await getLogsAdaptive({
+    address: VOTE_ESCROW,
+    topics: [TRANSFER_TOPIC0, ZERO_TOPIC], // [Transfer, from=0x0]
+    fromBlock: DEPLOY_BLOCK_TOKEN,
+    toBlock,
+  });
+  const ids = new Set<string>();
+  for (const lg of mintLogs) {
+    if (lg.topics.length >= 4) ids.add(lg.topics[3]); // tokenId at topic3
+  }
+  return [...ids];
+}
+
+/** Sum active ve locks (amount>0) at `block`; split permanent (permanent || lockEnd==0). */
+async function computeVeTotalsAtBlock(
+  tokenIds: string[],
+  block: bigint
+): Promise<{ totalRaw: bigint; permanentRaw: bigint; timelockedRaw: bigint; activeCount: number }> {
+  const calls: Call3[] = tokenIds.map((tid) => ({
+    target: VOTE_ESCROW,
+    allowFailure: true,
+    callData: (LOCKS_SEL + encodeAbiParameters(UINT256_IN, [BigInt(tid)]).slice(2)) as `0x${string}`,
+  }));
+
+  const results = await aggregate3(calls, block);
+
+  let totalRaw = 0n;
+  let permanentRaw = 0n;
+  let timelockedRaw = 0n;
+  let activeCount = 0;
+
+  for (const r of results) {
+    if (!r.success || !r.returnData || r.returnData === "0x") continue;
+    let decoded: readonly unknown[];
+    try {
+      decoded = decodeAbiParameters(LOCKS_OUT, r.returnData);
+    } catch {
+      continue;
+    }
+    const amount = decoded[0] as bigint;
+    const lockEnd = decoded[2] as bigint;
+    const permanent = decoded[3] as boolean;
+    if (amount <= 0n) continue;
+    totalRaw += amount;
+    activeCount++;
+    if (permanent || lockEnd === 0n) permanentRaw += amount;
+    else timelockedRaw += amount;
+  }
+
+  return { totalRaw, permanentRaw, timelockedRaw, activeCount };
+}
+
+const LP_TOTAL_STAKED_SEL_S = "0x817b1cd2";
+
+async function stakingOnlyBackfill(
+  samples: Array<{ block: bigint; timestamp: bigint }>
+): Promise<void> {
+  console.log("[backfill][staking-only] Recomputing total_staked_slvr per sample block (ve locks() AT block via Multicall3)");
+
+  // Wipe the mixed/incorrect series so we rebuild a clean one.
+  await sql`DELETE FROM metrics.metric_snapshots WHERE metric_name = 'total_staked_slvr'`;
+  console.log("[backfill][staking-only] Cleared existing total_staked_slvr rows");
+
+  console.log("[backfill][staking-only] Enumerating ve lock tokenIds (once)…");
+  const head = await getHead();
+  const tokenIds = await enumerateVeTokenIds(head.block);
+  console.log(`[backfill][staking-only] ${tokenIds.length} ve lock tokenIds enumerated`);
+
+  let processed = 0;
+  const t0 = Date.now();
+  for (let i = 0; i < samples.length; i++) {
+    const { block, timestamp } = samples[i];
+    const snapshotAt = new Date(Number(timestamp) * 1000);
+    try {
+      const totals = await computeVeTotalsAtBlock(tokenIds, block);
+
+      // LP staked at this block (best-effort; 0 on failure).
+      let lpStakedRaw = 0n;
+      try {
+        lpStakedRaw = decodeUint256(await archivalCall(LP_STAKING, LP_TOTAL_STAKED_SEL_S, block));
+      } catch {
+        /* leave 0 */
+      }
+
+      await writeSnapshot({
+        metricName: "total_staked_slvr",
+        value: Number(totals.totalRaw) / 1e18,
+        value2: Number(totals.permanentRaw) / 1e18,
+        value3: Number(totals.timelockedRaw) / 1e18,
+        metadata: {
+          total_locked_raw: totals.totalRaw.toString(),
+          permanent_raw: totals.permanentRaw.toString(),
+          timelocked_raw: totals.timelockedRaw.toString(),
+          active_lock_count: totals.activeCount,
+          lp_staked_raw: lpStakedRaw.toString(),
+          lp_staked_lp_tokens: (Number(lpStakedRaw) / 1e18).toFixed(6),
+          block: block.toString(),
+          source: "archival_backfill_staking",
+          note: "Per-slot ve locks() read AT block via Multicall3 aggregate3.",
+        },
+        snapshotAt,
+        blockNumber: block,
+        backfill: true,
+      });
+      processed++;
+      console.log(
+        `[backfill][staking-only] ${i + 1}/${samples.length} block=${block} ` +
+        `total=${(Number(totals.totalRaw) / 1e18).toFixed(0)} ` +
+        `(perm=${(Number(totals.permanentRaw) / 1e18).toFixed(0)}, tl=${(Number(totals.timelockedRaw) / 1e18).toFixed(0)}, active=${totals.activeCount})`
+      );
+    } catch (e) {
+      console.error(`[backfill][staking-only] block=${block} Error:`, String(e));
+    }
+    if ((i + 1) % 5 === 0) {
+      const elapsed = (Date.now() - t0) / 1000;
+      const rate = processed / Math.max(elapsed, 0.001);
+      const eta = rate > 0 ? (samples.length - i - 1) / rate : 0;
+      console.log(`[backfill][staking-only] ${i + 1}/${samples.length} | elapsed ${elapsed.toFixed(0)}s | ETA ${eta.toFixed(0)}s`);
+    }
+  }
+
+  console.log(`[backfill][staking-only] Done. Wrote ${processed}/${samples.length} slots.`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const aprOnly = args.includes("--apr-only");
+  const stakingOnly = args.includes("--staking-only");
 
   if (dryRun) {
     console.log("[backfill] DRY RUN — will compute sample blocks but not write to DB");
   }
   if (aprOnly) {
     console.log("[backfill] APR-ONLY mode — overwriting null dividends_apr rows with correct V1/V2 routed values");
+  }
+  if (stakingOnly) {
+    console.log("[backfill] STAKING-ONLY mode — rebuilding total_staked_slvr as a smooth per-slot ve series");
   }
 
   console.log("[backfill] Fetching chain head...");
@@ -345,6 +497,21 @@ async function main() {
     for (const s of samples) {
       console.log(`  block=${s.block} ts=${new Date(Number(s.timestamp) * 1000).toISOString()}`);
     }
+    await sql.end();
+    return;
+  }
+
+  // Staking-only mode: rebuild total_staked_slvr per sample block (FIX 2)
+  if (stakingOnly) {
+    await stakingOnlyBackfill(samples);
+    const staked = await sql<Array<{ t: string; staked: string }>>`
+      SELECT to_char(snapshot_at,'MM-DD HH24:MI') AS t, round(value::numeric, 0)::text AS staked
+      FROM metrics.metric_snapshots
+      WHERE metric_name = 'total_staked_slvr' AND value IS NOT NULL
+      ORDER BY snapshot_at ASC
+    `;
+    console.log("\n[backfill][staking-only] total_staked_slvr series:");
+    for (const r of staked) console.log(`  ${r.t}  ${r.staked}`);
     await sql.end();
     return;
   }

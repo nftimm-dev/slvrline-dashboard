@@ -16,13 +16,13 @@ const ALL_CONTRACTS: {
   },
   {
     address: "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71",
-    label: "Grid Lottery",
+    label: "Grid Mining",
     purpose: "Current mining/game: rounds, bets, winners, emissions",
     status: "Production",
   },
   {
     address: "0x284Eb4016305Fa7FbC162Fb68F27227271001c7f",
-    label: "Grid Lottery (Legacy)",
+    label: "Grid Mining (Legacy)",
     purpose: "V1 contract (ended block 17,440,150); historical dividends",
     status: "Historical",
   },

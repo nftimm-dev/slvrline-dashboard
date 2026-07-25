@@ -7,7 +7,7 @@
  * totalUnclaimed()  0xc96f14b8 → unclaimed mining rewards pool (SLVR)
  * totalRefined()    0x9ff953a0 → cumulative refined (SLVR)
  *
- * The Grid Lottery IS "mining": miners commit to grid cells; refining fees on
+ * Grid Mining IS "mining": miners commit to grid cells; refining fees on
  * claims redistribute to remaining unclaimed holders. 30-second cache.
  */
 import { withCache } from "./cache";

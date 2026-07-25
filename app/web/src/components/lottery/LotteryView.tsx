@@ -133,7 +133,7 @@ export default function LotteryView() {
             marginBottom: 8,
           }}
         >
-          The Grid Lottery is &ldquo;mining&rdquo;
+          Grid Mining is how SLVR is emitted
         </div>
         <p
           style={{
@@ -143,7 +143,7 @@ export default function LotteryView() {
             maxWidth: "72ch",
           }}
         >
-          SLVR is emitted through the Grid Lottery: miners commit to grid cells
+          SLVR is emitted through Grid Mining: miners commit to grid cells
           each round for a chance at the jackpot. A refining fee on every claim
           is redistributed to all remaining <em>unclaimed</em> reward
           holders — that stream is what the{" "}

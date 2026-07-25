@@ -45,6 +45,14 @@ const UINT256 = parseAbiParameters("uint256");
 // Concurrency for the ~1,600 locks() eth_calls.
 const LOCKS_CONCURRENCY = 10;
 
+export type VeLock = {
+  tokenId: string;
+  owner: string;
+  amountRaw: bigint;
+  permanent: boolean;
+  lockEnd: bigint;
+};
+
 export type StakingResult = {
   totalLockedRaw: bigint;
   timelockedRaw: bigint;
@@ -52,6 +60,8 @@ export type StakingResult = {
   activeLockCount: number;
   lpStakedRaw: bigint;
   lpStakedHuman: number;
+  /** Every ACTIVE lock (amount > 0), with current owner. Empty on fallback. */
+  activeLocks: VeLock[];
   source: "ve_onchain_state" | "ve_balance_fallback";
   note: string;
 };
@@ -81,6 +91,8 @@ export async function computeStaking(atBlock?: bigint): Promise<StakingResult> {
     console.warn("[staking] ve_onchain_state failed, falling back to balanceOf:", String(e));
   }
 
+  // (fallback below)
+
   // 3. Fallback: balanceOf(voteEscrow) ≈ time-locked SLVR (permanent locks are burned).
   let balanceFallback = 0n;
   try {
@@ -98,6 +110,7 @@ export async function computeStaking(atBlock?: bigint): Promise<StakingResult> {
     activeLockCount: -1,
     lpStakedRaw,
     lpStakedHuman: Number(lpStakedRaw) / 1e18,
+    activeLocks: [],
     source: "ve_balance_fallback",
     note: "Fallback: balanceOf(voteEscrow) = time-locked only. Permanent locks are burned and not included. On-chain enumeration failed.",
   };
@@ -105,8 +118,10 @@ export async function computeStaking(atBlock?: bigint): Promise<StakingResult> {
 
 async function computeVeLockTotals(
   atBlock: bigint
-): Promise<Pick<StakingResult, "totalLockedRaw" | "timelockedRaw" | "permanentRaw" | "activeLockCount" | "source" | "note">> {
+): Promise<Pick<StakingResult, "totalLockedRaw" | "timelockedRaw" | "permanentRaw" | "activeLockCount" | "activeLocks" | "source" | "note">> {
   // Step 1: enumerate every ve lock tokenId ever minted (ERC-721 Transfer from 0x0).
+  // topics = [sig, from(0x0), to, tokenId]; owner (soulbound → mint `to`) at topic2,
+  // tokenId indexed at topic3.
   const mintLogs = await getLogsAdaptive({
     address: VOTE_ESCROW,
     topics: [TRANSFER_TOPIC0, ZERO_TOPIC], // [Transfer, from=0x0]  (to, tokenId not filtered)
@@ -114,29 +129,34 @@ async function computeVeLockTotals(
     toBlock: atBlock,
   });
 
-  const tokenIds = new Set<string>();
+  const idToOwner = new Map<string, string>();
   for (const lg of mintLogs) {
-    // topics = [sig, from(0x0), to, tokenId]; tokenId indexed at topic3.
-    if (lg.topics.length >= 4) tokenIds.add(lg.topics[3]);
+    if (lg.topics.length >= 4) {
+      const tokenId = lg.topics[3];
+      const owner = "0x" + lg.topics[2].slice(26); // last 20 bytes of the 32-byte topic
+      idToOwner.set(tokenId, owner);
+    }
   }
 
-  if (tokenIds.size === 0) {
+  if (idToOwner.size === 0) {
     return {
       totalLockedRaw: 0n,
       timelockedRaw: 0n,
       permanentRaw: 0n,
       activeLockCount: 0,
+      activeLocks: [],
       source: "ve_onchain_state",
       note: "No ve lock mints found.",
     };
   }
 
   // Step 2+3: read current locks(tokenId) state for each, sum + classify.
-  const ids = [...tokenIds];
+  const ids = [...idToOwner.keys()];
   let totalLockedRaw = 0n;
   let timelockedRaw = 0n;
   let permanentRaw = 0n;
   let activeLockCount = 0;
+  const activeLocks: VeLock[] = [];
 
   for (let i = 0; i < ids.length; i += LOCKS_CONCURRENCY) {
     const batch = ids.slice(i, i + LOCKS_CONCURRENCY);
@@ -146,26 +166,34 @@ async function computeVeLockTotals(
           LOCKS_SEL + encodeAbiParameters(UINT256, [BigInt(tid)]).slice(2);
         const hex = await archivalCall(VOTE_ESCROW, calldata, atBlock);
         try {
-          return decodeAbiParameters(LOCKS_OUT, hex as `0x${string}`);
+          return { tid, decoded: decodeAbiParameters(LOCKS_OUT, hex as `0x${string}`) };
         } catch {
-          return null;
+          return { tid, decoded: null };
         }
       })
     );
 
     for (const r of results) {
-      if (!r) continue;
-      const amount = r[0] as bigint;
-      const lockEnd = r[2] as bigint;
-      const permanent = r[3] as boolean;
+      if (!r.decoded) continue;
+      const amount = r.decoded[0] as bigint;
+      const lockEnd = r.decoded[2] as bigint;
+      const permanent = r.decoded[3] as boolean;
       if (amount <= 0n) continue; // withdrawn/empty
       totalLockedRaw += amount;
       activeLockCount++;
-      if (permanent || lockEnd === 0n) {
+      const isPerm = permanent || lockEnd === 0n;
+      if (isPerm) {
         permanentRaw += amount;
       } else {
         timelockedRaw += amount;
       }
+      activeLocks.push({
+        tokenId: r.tid,
+        owner: idToOwner.get(r.tid) ?? "0x0000000000000000000000000000000000000000",
+        amountRaw: amount,
+        permanent: isPerm,
+        lockEnd,
+      });
     }
   }
 
@@ -174,6 +202,7 @@ async function computeVeLockTotals(
     timelockedRaw,
     permanentRaw,
     activeLockCount,
+    activeLocks,
     source: "ve_onchain_state",
     note: `On-chain state: ${ids.length} lock tokenIds enumerated, ${activeLockCount} active (amount>0).`,
   };
