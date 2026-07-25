@@ -7,7 +7,7 @@ import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
 
 export default function AprChartSection() {
-  const [range, setRange] = useState<RangeKey>("7d");
+  const [range, setRange] = useState<RangeKey>("all");
   const { data, isLoading } = useHistory("dividends_apr", range);
 
   return (
@@ -20,7 +20,10 @@ export default function AprChartSection() {
             color: "var(--color-silver-200)",
           }}
         >
-          Dividends APR
+          Dividends APR{" "}
+          <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--color-silver-400)" }}>
+            · V1 (pre-23 Jul) → V2 reset at migration · log scale
+          </span>
         </h2>
         <TimeRangeSelector value={range} onChange={setRange} />
       </div>
@@ -38,6 +41,7 @@ export default function AprChartSection() {
           isLoading={isLoading}
           series={[{ key: "v", color: "#5eead4", label: "APR" }]}
           format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + "%"}
+          logScale
         />
       </div>
     </section>

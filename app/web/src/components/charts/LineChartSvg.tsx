@@ -22,6 +22,8 @@ interface Props {
   isLoading: boolean;
   series: ChartSeries[];
   format?: (n: number) => string;
+  /** Log-scale Y axis — makes values spanning orders of magnitude legible (drops non-positive points). */
+  logScale?: boolean;
 }
 
 const fmtDay = (t: number) =>
@@ -111,7 +113,7 @@ function ChartTooltip(props: {
  * unlike the canvas libs (echarts/lightweight-charts) whose dynamic imports
  * silently failed to mount in this Next 15 build. Hover for crosshair + tooltip.
  */
-export default function LineChartSvg({ data, isLoading, series, format }: Props) {
+export default function LineChartSvg({ data, isLoading, series, format, logScale }: Props) {
   const fmt =
     format ?? ((n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 }));
 
@@ -133,7 +135,14 @@ export default function LineChartSvg({ data, isLoading, series, format }: Props)
     .filter(
       (r) =>
         Number.isFinite(r.t) &&
-        series.some((s) => r[s.key] !== null && Number.isFinite(r[s.key] as number))
+        series.some((s) => {
+          const val = r[s.key];
+          return (
+            val !== null &&
+            Number.isFinite(val) &&
+            (!logScale || (val as number) > 0)
+          );
+        })
     );
 
   if (rows.length === 0) {
@@ -185,11 +194,13 @@ export default function LineChartSvg({ data, isLoading, series, format }: Props)
           tickMargin={8}
         />
         <YAxis
+          scale={logScale ? "log" : "auto"}
+          allowDataOverflow={logScale || undefined}
           tickFormatter={compact}
           tick={{ fill: "var(--color-silver-400)", fontSize: 11 }}
           stroke="var(--color-silver-700)"
           width={54}
-          domain={["auto", "auto"]}
+          domain={logScale ? [(min: number) => Math.max(1, min * 0.7), (max: number) => max * 1.3] : ["auto", "auto"]}
         />
         <Tooltip
           cursor={{ stroke: "var(--color-silver-500)", strokeWidth: 1 }}
