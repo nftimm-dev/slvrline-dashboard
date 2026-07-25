@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/analytics/PageHeader";
 import LotteryView from "@/components/lottery/LotteryView";
+import UnclaimedMinersSection from "@/components/mining/UnclaimedMinersSection";
 
 export const metadata: Metadata = {
   title: "Grid Mining — SLVRline",
@@ -18,6 +19,7 @@ export default function MiningPage() {
           subtitle="The live mining engine for SLVR. A snapshot of the current round, jackpot, and the reward pools that drive dividends."
         />
         <LotteryView />
+        <UnclaimedMinersSection />
       </PageContainer>
     </main>
   );
