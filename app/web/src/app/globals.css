@@ -56,3 +56,24 @@
     box-sizing: border-box;
   }
 }
+
+.mining-portal-link {
+  animation: mining-portal-pulse 2.8s ease-in-out infinite;
+}
+
+@keyframes mining-portal-pulse {
+  0%,
+  100% {
+    filter: brightness(0.94);
+  }
+
+  50% {
+    filter: brightness(1.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mining-portal-link {
+    animation: none;
+  }
+}
