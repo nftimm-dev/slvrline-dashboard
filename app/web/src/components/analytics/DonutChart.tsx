@@ -111,30 +111,59 @@ export default function DonutChart({
         </PieChart>
       </ResponsiveContainer>
 
-      {centerValue && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            pointerEvents: "none",
-          }}
-        >
-          <span
-            className="font-mono"
-            style={{
-              fontSize: "1.25rem",
-              fontWeight: 700,
-              color: "var(--color-silver-100)",
-              fontVariantNumeric: "tabular-nums",
-              lineHeight: 1.1,
-            }}
-          >
-            {centerValue}
-          </span>
+      {centerValue &&
+        (() => {
+          // Keep the figure inside the donut hole: split "12,297.5 SLVR" into a
+          // number line + a smaller unit line, and cap width to the inner radius
+          // so it never spills over the ring.
+          const sp = centerValue.lastIndexOf(" ");
+          const hasUnit = sp > 0 && /[0-9]/.test(centerValue.slice(0, sp));
+          const main = hasUnit ? centerValue.slice(0, sp) : centerValue;
+          const unit = hasUnit ? centerValue.slice(sp + 1) : null;
+          return (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "none",
+                textAlign: "center",
+              }}
+            >
+              <div style={{ maxWidth: height * 0.52 }}>
+                <span
+                  className="font-mono"
+                  style={{
+                    display: "block",
+                    fontSize: "1.1rem",
+                    fontWeight: 700,
+                    color: "var(--color-silver-100)",
+                    fontVariantNumeric: "tabular-nums",
+                    lineHeight: 1.05,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {main}
+                </span>
+                {unit && (
+                  <span
+                    className="font-mono"
+                    style={{
+                      display: "block",
+                      fontSize: "0.6875rem",
+                      fontWeight: 600,
+                      letterSpacing: "0.04em",
+                      color: "var(--color-silver-400)",
+                      marginTop: 1,
+                    }}
+                  >
+                    {unit}
+                  </span>
+                )}
+              </div>
           {centerLabel && (
             <span
               className="uppercase"
@@ -148,8 +177,9 @@ export default function DonutChart({
               {centerLabel}
             </span>
           )}
-        </div>
-      )}
+            </div>
+          );
+        })()}
     </div>
   );
 }
