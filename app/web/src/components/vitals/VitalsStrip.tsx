@@ -9,32 +9,27 @@ import {
   formatRunway,
 } from "@/lib/format";
 
-function EarlyBadge({ windowDays }: { windowDays?: number | null }) {
+function RefBadge() {
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2 py-0.5"
       style={{
-        backgroundColor: "rgba(240,192,80,0.12)",
+        backgroundColor: "rgba(200,204,220,0.08)",
         borderRadius: "var(--radius-chip)",
-        border: "1px solid rgba(240,192,80,0.3)",
+        border: "1px solid var(--color-silver-700)",
       }}
     >
       <span
         style={{
           fontSize: "0.625rem",
           fontWeight: 700,
-          color: "var(--color-stale)",
+          color: "var(--color-silver-300)",
           letterSpacing: "0.08em",
           textTransform: "uppercase",
         }}
       >
-        EARLY
+        V1 reference
       </span>
-      {windowDays != null && (
-        <span style={{ fontSize: "0.625rem", color: "var(--color-stale)" }}>
-          · {windowDays}-day window
-        </span>
-      )}
     </span>
   );
 }
@@ -100,16 +95,20 @@ export default function VitalsStrip() {
 
   const aprMeta = apr?.metadata as
     | {
-        window?: string;
         window_days?: number;
-        status?: string;
+        data_status?: string;
+        headline_mode?: string;
+        v1_reference_apr?: number;
+        v2_live_annualized?: number;
       }
     | null
     | undefined;
-  const isEarlyApr =
-    aprMeta?.status === "early" ||
-    (aprMeta?.window_days != null && aprMeta.window_days < 7);
-  const aprWindowDays = aprMeta?.window_days ?? null;
+  const v1Ref = aprMeta?.v1_reference_apr ?? null;
+  const v2Live = aprMeta?.v2_live_annualized ?? apr?.value ?? null;
+  // Option C: while V2 is still stabilising after its 22 Jul accumulator reset,
+  // headline V1's last stable 7-day rate as a reference rather than the
+  // launch-burst number. `apr.value` (true V2 figure) still drives the chart.
+  const showV1Ref = aprMeta?.headline_mode === "v1_reference" && v1Ref != null;
 
   return (
     <section className="pt-8 pb-6">
@@ -125,22 +124,26 @@ export default function VitalsStrip() {
         <div className="vitals-apr-col">
           <VitalCard
             label="DIVIDENDS APR"
-            primary={apr?.value != null ? `≈${formatAPR(apr.value)}` : "—"}
+            primary={
+              showV1Ref
+                ? `≈${formatAPR(v1Ref)}`
+                : apr?.value != null
+                ? `≈${formatAPR(apr.value)}`
+                : "—"
+            }
             secondary={
-              isEarlyApr
-                ? `${aprWindowDays ?? "~2"}-day window · annualized`
-                : "7-day annualized"
+              showV1Ref ? "V1 pre-migration · 7-day rolling" : "7-day annualized"
             }
             colorVar="--color-apr"
             snapshotAt={apr?.snapshot_at}
             blockNumber={apr?.block_number}
             loading={isLoading && !apr}
-            badge={
-              isEarlyApr ? <EarlyBadge windowDays={aprWindowDays} /> : undefined
-            }
+            badge={showV1Ref ? <RefBadge /> : undefined}
             subtext={
-              isEarlyApr
-                ? "Grid Lottery V2 launched Jul 22 — a stable 7-day figure begins ~Jul 29. Early yields are extreme & volatile."
+              showV1Ref
+                ? `V2's dividend accumulator reset at the 22 Jul migration, so its live rate (≈${
+                    v2Live != null ? formatAPR(v2Live) : "—"
+                  }) is a one-off launch burst — not a sustainable yield. Showing V1's last stable 7-day rate; a real V2 figure begins ~29 Jul (see chart below).`
                 : undefined
             }
           />

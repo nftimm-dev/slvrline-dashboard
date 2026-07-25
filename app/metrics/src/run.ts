@@ -54,6 +54,16 @@ export async function computeAndWrite(): Promise<void> {
         // "early": V2 < 7d old; window = min(7d, V2 age); matures ~2026-07-29
         basis: "v2",
         source: "archival_eth_call",
+        // --- Headline policy (option C) ---
+        // V2's dividend accumulator RESET at the 22 Jul migration, so its early
+        // annualized rate is a one-off launch burst, not a sustainable yield.
+        // Until V2 has a full 7-day window (~29 Jul) the HEADLINE shows V1's last
+        // stable 7-day rate as a reference. `value` above stays the true V2 figure
+        // so the history chart remains accurate.
+        v1_reference_apr: 5008, // immutable — V1 (retired) final stable 7-day rolling APR (%)
+        v2_live_annualized: apr.aprPercent,
+        headline_mode: apr.dataStatus === "ok" ? "v2" : "v1_reference",
+        stable_from: "2026-07-29",
       },
       snapshotAt: now,
       blockNumber: headBlock,
