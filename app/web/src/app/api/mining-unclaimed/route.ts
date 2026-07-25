@@ -11,16 +11,24 @@
  */
 import { NextResponse } from "next/server";
 import { getMiningUnclaimed } from "@/lib/miningUnclaimed";
+import { readDbCache } from "@/lib/dbCache";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const data = await getMiningUnclaimed();
+    // Serverless-safe: the cron worker precomputes this ~33s enumeration into
+    // metrics.cache. Read it back instantly; only compute live if the cache is
+    // cold (e.g. local dev before the worker has run).
+    const cached = await readDbCache<Record<string, unknown>>("mining_unclaimed");
+    const data = cached
+      ? { ...cached.data, cached_at: cached.updatedAt }
+      : await getMiningUnclaimed();
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": "no-store",
         "X-Data-Sources": "robinhood-rpc,multicall3",
+        "X-Cache": cached ? "hit" : "miss",
       },
     });
   } catch (err) {

@@ -1,0 +1,49 @@
+name: metrics-cron
+
+# Refreshes SLVRline's on-chain metrics into Supabase every ~15 min:
+#   1. app/metrics run-once  -> metrics.metric_snapshots (vitals/staking/supply/runway/apr/lottery)
+#   2. app/web precompute    -> metrics.cache (heavy routes: mining-unclaimed, economic holders)
+# The Next.js app on Vercel only ever reads these tables, so pages stay instant.
+#
+# DATABASE_URL secret must be the Supabase SESSION pooler (port 5432) — app/metrics
+# uses prepared statements, which the transaction pooler (6543) does not support.
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: metrics-cron
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install workspace
+        run: pnpm install --frozen-lockfile
+
+      - name: Snapshot metrics (run-once)
+        working-directory: app/metrics
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm run run-once
+
+      - name: Precompute heavy route caches
+        working-directory: app/web
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm exec tsx scripts/precompute.ts

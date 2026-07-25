@@ -37,3 +37,4 @@ logfile
 # local artifacts
 *.png
 .playwright-mcp/
+.vercel

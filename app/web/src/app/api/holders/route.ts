@@ -13,19 +13,35 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getHoldersData, getEconomicHoldersData } from "@/lib/holders";
+import { readDbCache } from "@/lib/dbCache";
 
 export async function GET(req: NextRequest) {
   const economic = req.nextUrl.searchParams.get("economic") === "1";
   try {
-    const data = economic
-      ? await getEconomicHoldersData()
-      : await getHoldersData();
+    // The economic view (~20s of on-chain enumeration) is precomputed into
+    // metrics.cache by the cron worker; read it back instantly on serverless.
+    // The plain Blockscout view (~1s) always runs live.
+    let data;
+    let cacheState: string | null = null;
+    if (economic) {
+      const cached = await readDbCache<Record<string, unknown>>("holders_economic");
+      if (cached) {
+        data = { ...cached.data, cached_at: cached.updatedAt };
+        cacheState = "hit";
+      } else {
+        data = await getEconomicHoldersData();
+        cacheState = "miss";
+      }
+    } else {
+      data = await getHoldersData();
+    }
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": "no-store",
         "X-Data-Sources": economic
           ? "blockscout,robinhood-rpc,multicall3"
           : "blockscout",
+        ...(cacheState ? { "X-Cache": cacheState } : {}),
       },
     });
   } catch (err) {
