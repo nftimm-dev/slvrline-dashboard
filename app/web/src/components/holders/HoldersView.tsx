@@ -89,11 +89,25 @@ export default function HoldersView() {
 
   const failed = !!error;
 
-  // Top-10 horizontal bars — protocol addresses tinted differently from wallets.
-  const bars: BarDatum[] = (data?.top ?? []).slice(0, 10).map((h) => ({
+  // Split the ranked list: individual wallets (the real "holders") vs protocol
+  // contracts (vote escrow, unclaimed pools, LP pairs, DEX, vesting, treasury).
+  // Protocol addresses get their own section rather than dominating the rankings.
+  const allRows = data?.top ?? [];
+  const wallets: HolderRow[] = allRows
+    .filter((h) => !h.isContract)
+    .map((h, i) => ({ ...h, rank: i + 1 }));
+  const contracts: HolderRow[] = allRows.filter((h) => h.isContract);
+
+  // Concentration among real holders only (recomputed client-side from wallets).
+  const walletTop10Pct = wallets
+    .slice(0, 10)
+    .reduce((sum, h) => sum + h.pctOfSupply, 0);
+
+  // Top-10 horizontal bars — real holders only.
+  const bars: BarDatum[] = wallets.slice(0, 10).map((h) => ({
     label: shortLabel(h),
     value: h.balanceSlvr,
-    color: h.isContract ? "var(--color-staking)" : "var(--color-supply)",
+    color: "var(--color-supply)",
   }));
 
   const columns: Column<HolderRow>[] = [
@@ -147,6 +161,35 @@ export default function HoldersView() {
     },
   ];
 
+  // Protocol-address table: no competitive rank column — these aren't "holders".
+  const contractColumns: Column<HolderRow>[] = [
+    {
+      key: "addr",
+      header: "Protocol address",
+      render: (h) => (
+        <AddressCell address={h.address} label={h.label} isContract={h.isContract} />
+      ),
+    },
+    {
+      key: "bal",
+      header: economic ? "Economic balance" : "Balance",
+      align: "right",
+      mono: true,
+      render: (h) => slvr(h.balanceSlvr),
+    },
+    {
+      key: "pct",
+      header: "% of supply",
+      align: "right",
+      mono: true,
+      render: (h) => (
+        <span style={{ color: "var(--color-silver-300)" }}>
+          {h.pctOfSupply.toFixed(2)}%
+        </span>
+      ),
+    },
+  ];
+
   return (
     <>
       {/* Headline cards */}
@@ -159,9 +202,9 @@ export default function HoldersView() {
           loading={isLoading && !data}
         />
         <StatCard
-          label="TOP-10 CONCENTRATION"
-          primary={data ? `${data.top10Pct.toFixed(1)}%` : "—"}
-          secondary={economic ? "economic · of supply" : "of current supply"}
+          label="TOP-10 WALLETS"
+          primary={data ? `${walletTop10Pct.toFixed(1)}%` : "—"}
+          secondary="of supply · real holders"
           colorVar="--color-staking"
           loading={isLoading && !data}
         />
@@ -204,13 +247,7 @@ export default function HoldersView() {
       {/* Top 10 bar chart */}
       <Panel
         title={economic ? "Top 10 economic holders" : "Top 10 holders"}
-        note={
-          <span>
-            <span style={{ color: "var(--color-staking)" }}>■</span> contract{" "}
-            <span style={{ color: "var(--color-supply)", marginLeft: 8 }}>■</span>{" "}
-            wallet
-          </span>
-        }
+        note="individual wallets · protocol addresses excluded"
       >
         {failed ? (
           <StateMessage
@@ -230,10 +267,10 @@ export default function HoldersView() {
         )}
       </Panel>
 
-      {/* Full ranked table */}
+      {/* Real-holder rankings — protocol contracts are pulled out below */}
       <Panel
         title={economic ? "Economic holder rankings" : "Holder rankings"}
-        note="protocol addresses tagged"
+        note="individual wallets only"
         flush
       >
         {failed ? (
@@ -246,14 +283,32 @@ export default function HoldersView() {
         ) : (
           <DataTable<HolderRow>
             columns={columns}
-            rows={data?.top ?? []}
+            rows={wallets}
             rowKey={(h) => h.address}
             loading={isLoading && !data}
             skeletonRows={10}
-            emptyMessage="No holders found"
+            emptyMessage="No wallet holders found"
           />
         )}
       </Panel>
+
+      {/* Protocol addresses — their own section, deliberately not "holders" */}
+      {!failed && contracts.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <Panel
+            title="Protocol addresses"
+            note="contracts · not individual holders"
+            flush
+          >
+            <DataTable<HolderRow>
+              columns={contractColumns}
+              rows={contracts}
+              rowKey={(h) => h.address}
+              emptyMessage="No protocol addresses"
+            />
+          </Panel>
+        </div>
+      )}
 
       <p
         style={{
@@ -276,9 +331,10 @@ export default function HoldersView() {
           <>
             Source: Blockscout token holders. Percentages are of current{" "}
             <code style={{ fontFamily: "var(--font-mono)" }}>totalSupply()</code>.
-            Protocol contracts (vote escrow, lottery, LP, DEX pools) are tagged{" "}
-            <em>contract</em> — much of the top of the list is protocol-owned, not
-            individual wallets. Cached 5 min.
+            Protocol contracts (vote escrow, unclaimed pools, LP, DEX, vesting,
+            treasury) are listed separately under{" "}
+            <em>Protocol addresses</em> — the rankings above are individual
+            wallets only. Cached 5 min.
           </>
         )}
       </p>
