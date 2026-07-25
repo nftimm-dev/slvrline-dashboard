@@ -13,24 +13,26 @@ import AddressCell from "@/components/analytics/AddressCell";
 import StateMessage from "@/components/analytics/StateMessage";
 import type { StakingData, TopLocker } from "@/lib/staking";
 
-interface RewardWeightRow {
+interface AprRow {
   key: string;
   label: string;
   durationDays: number | null;
   multiplier: number;
-  relativeToMax: number;
+  aprPercent: number;
+  aprDisplay: string;
 }
 
 interface StakingRewardsData {
-  mode: "relative_weight" | "apr";
+  mode: "apr" | "relative_weight";
   rewardToken: string;
-  rows: RewardWeightRow[];
+  window_days: number;
+  eth_per_day: number;
+  rows: AprRow[];
   params: {
     tmaxMonths: number;
     mmax: number;
     permanentMultiplier: number;
   };
-  rateContext: { note: string };
   source: string;
 }
 
@@ -102,10 +104,12 @@ export default function StakingView() {
   );
 
   const failed = !!error;
+  const isAprMode = rewards?.mode === "apr";
 
+  // Bar chart values: APR % when mode=apr, else multiplier fallback
   const rewardBars: BarDatum[] = (rewards?.rows ?? []).map((r) => ({
     label: r.label,
-    value: r.multiplier,
+    value: isAprMode ? r.aprPercent : r.multiplier,
     color:
       r.key === "permanent" ? "var(--color-supply)" : "var(--color-staking)",
   }));
@@ -300,13 +304,17 @@ export default function StakingView() {
       {/* Rewards by lock length */}
       <Panel
         title="Rewards by lock length"
-        note="relative veSLVR reward weight — longer locks earn proportionally more"
+        note={
+          isAprMode
+            ? `absolute ETH APR · ${rewards!.window_days}-day trailing window · ~${rewards!.eth_per_day.toFixed(2)} ETH/day to stakers`
+            : "relative veSLVR reward weight — longer locks earn proportionally more"
+        }
       >
         {rewardsError ? (
           <StateMessage
             tone="error"
-            title="Reward-weight data unavailable"
-            detail="Could not read the vote-escrow multiplier constants from the Robinhood RPC."
+            title="Reward data unavailable"
+            detail="Could not read veSLVR staking rewards from the Robinhood RPC."
             height={220}
           />
         ) : (
@@ -315,30 +323,96 @@ export default function StakingView() {
               data={rewardBars}
               layout="horizontal"
               color="var(--color-staking)"
-              valueLabel="Weight ×"
-              format={(n) => `${n.toFixed(3)}×`}
+              valueLabel={isAprMode ? "APR %" : "Weight ×"}
+              format={(n) =>
+                isAprMode
+                  ? n >= 1000
+                    ? new Intl.NumberFormat("en-US", {
+                        maximumFractionDigits: 0,
+                      }).format(n) + "%"
+                    : n.toFixed(0) + "%"
+                  : `${n.toFixed(3)}×`
+              }
               height={220}
             />
+
+            {/* ETH asset badge + multiplier secondary info */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginTop: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.625rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                  color: "var(--color-price)",
+                  border: "1px solid var(--color-price)",
+                  borderRadius: 4,
+                  padding: "1px 7px",
+                  fontWeight: 700,
+                }}
+              >
+                earns ETH
+              </span>
+              {isAprMode && rewards && (
+                <span
+                  style={{
+                    fontSize: "0.6875rem",
+                    color: "var(--color-silver-400)",
+                  }}
+                >
+                  weight multipliers:{" "}
+                  {rewards.rows
+                    .map((r) => `${r.label} ${r.multiplier.toFixed(2)}×`)
+                    .join(" · ")}
+                </span>
+              )}
+            </div>
+
             <p
               style={{
                 fontSize: "0.6875rem",
                 color: "var(--color-silver-400)",
-                marginTop: 12,
+                marginTop: 8,
                 lineHeight: 1.5,
               }}
             >
-              Reward <strong>weight multiplier per SLVR</strong>, not an APR. veSLVR
-              staking pays protocol revenue (in{" "}
-              {rewards?.rewardToken ?? "ETH"}) pro-rata to voting weight, and weight
-              scales linearly with lock length — from{" "}
-              <strong>1.0×</strong> up to <strong>{(rewards?.params.mmax ?? 2.5).toFixed(2)}×</strong>{" "}
-              at the {rewards?.params.tmaxMonths ?? 4}-month max lock, with permanent
-              locks fixed at <strong>{(rewards?.params.permanentMultiplier ?? 4).toFixed(1)}×</strong>.
-              So a 4-month lock earns ~{((rewards?.params.mmax ?? 2.5) / 1.375).toFixed(1)}×
-              the rewards of a 1-month lock on the same SLVR. An absolute % APR is not
-              shown because rewards are paid in a different asset (ETH) than is staked
-              (SLVR) and the staking contract is newly live with a still-ramping rate.
-              Source: <code>getStakingWeight</code> · TMAX / MMAX / P.
+              {isAprMode && rewards ? (
+                <>
+                  veSLVR staking rewards are paid in <strong>ETH</strong>.
+                  APR shown is absolute (ETH yield annualised / SLVR staked value),
+                  using a{" "}
+                  <strong>{rewards.window_days}-day trailing window</strong> —
+                  early &amp; volatile. Multipliers per lock length are shown
+                  above; permanent locks (
+                  {rewards.params.permanentMultiplier.toFixed(1)}×) cannot be
+                  unstaked. Source: <code>rewardPerWeightStored</code> Δ ·{" "}
+                  <code>TMAX / MMAX / P</code>.
+                </>
+              ) : (
+                <>
+                  Reward <strong>weight multiplier per SLVR</strong>, not an APR.
+                  veSLVR staking pays protocol revenue (in{" "}
+                  {rewards?.rewardToken ?? "ETH"}) pro-rata to voting weight, and
+                  weight scales linearly with lock length — from{" "}
+                  <strong>1.0×</strong> up to{" "}
+                  <strong>
+                    {(rewards?.params.mmax ?? 2.5).toFixed(2)}×
+                  </strong>{" "}
+                  at the {rewards?.params.tmaxMonths ?? 4}-month max lock, with
+                  permanent locks fixed at{" "}
+                  <strong>
+                    {(rewards?.params.permanentMultiplier ?? 4).toFixed(1)}×
+                  </strong>
+                  . Source: <code>getStakingWeight</code> · TMAX / MMAX / P.
+                </>
+              )}
             </p>
           </>
         )}

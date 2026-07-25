@@ -28,6 +28,7 @@ interface EarnOption {
   reliabilityLabel: string;
   howTo: string;
   multiplier?: number;
+  aprPercent?: number;
   durationDays?: number | null;
 }
 
@@ -44,6 +45,8 @@ interface EarnResponse {
     mmax: number;
     permanentMultiplier: number;
     rewardToken: Asset;
+    windowDays: number | null;
+    ethPerDay: number | null;
   };
   caption: string;
   source: string;
@@ -162,6 +165,20 @@ function EarnRow({ o }: { o: EarnOption }) {
         >
           {o.headline.display}
         </span>
+        {/* Secondary: multiplier for staking rows that have APR as headline */}
+        {o.track === "staking" &&
+          o.headline.unit === "percent" &&
+          o.multiplier !== undefined && (
+            <span
+              style={{
+                fontSize: "0.75rem",
+                color: "var(--color-silver-400)",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {o.multiplier.toFixed(2)}× weight
+            </span>
+          )}
         <span
           style={{
             fontSize: "0.6875rem",
@@ -227,7 +244,7 @@ export default function EarnView() {
         <StateMessage
           tone="error"
           title="Earn comparison unavailable"
-          detail="Could not load the dividends snapshot or staking multipliers. This refreshes automatically."
+          detail="Could not load the dividends snapshot or staking rewards. This refreshes automatically."
           height={240}
         />
       </Panel>
@@ -236,13 +253,23 @@ export default function EarnView() {
 
   const dividends = data?.options.find((o) => o.track === "dividends");
   const staking = data?.options.filter((o) => o.track === "staking") ?? [];
+  const hasStakingApr =
+    staking.length > 0 && staking[0].headline.unit === "percent";
+  // Highest and lowest staking APR for the explainer (sorted by rank — rank 1 = highest)
+  const stakingByApr = [...staking].sort(
+    (a, b) => (b.headline.value ?? 0) - (a.headline.value ?? 0)
+  );
 
   return (
     <>
       {/* Ranked list */}
       <Panel
         title="Ranked by earning potential"
-        note="highest yield first · read each row's asset + reliability"
+        note={
+          hasStakingApr
+            ? `absolute APR · highest yield first · SLVR and ETH are different assets`
+            : "highest yield first · read each row's asset + reliability"
+        }
         flush
       >
         {isLoading && !data ? (
@@ -299,7 +326,7 @@ export default function EarnView() {
               lineHeight: 1.6,
             }}
           >
-            The single highest headline yield, paid in <strong>SLVR</strong>. Mine
+            The highest headline yield, paid in <strong>SLVR</strong>. Mine
             via Grid Mining and leave your rewards <em>unclaimed</em> — a refining
             fee from other miners&apos; claims is redistributed to unclaimed
             holders. The figure is the{" "}
@@ -352,19 +379,36 @@ export default function EarnView() {
             }}
           >
             Lock SLVR to earn protocol revenue paid in <strong>ETH</strong>,
-            split by voting weight. Longer locks earn a bigger weight —{" "}
-            <strong>
-              {(staking.at(-1)?.multiplier ?? 1.01).toFixed(2)}×
-            </strong>{" "}
-            for 1 day up to{" "}
-            <strong>{(data?.staking.mmax ?? 2.5).toFixed(2)}×</strong> at the{" "}
-            {data?.staking.tmaxMonths ?? 4}-month max, and{" "}
-            <strong style={{ color: "var(--color-silver-100)" }}>
-              {(data?.staking.permanentMultiplier ?? 4).toFixed(2)}×
-            </strong>{" "}
-            for a permanent lock. We show the exact reward-weight multiplier, not an
-            ETH %: the reward asset differs from what&apos;s staked and the rate is
-            newly live, so it isn&apos;t reliably annualizable.{" "}
+            split by voting weight. Longer locks earn a bigger weight multiplier.
+            {hasStakingApr && stakingByApr.length > 0 ? (
+              <>
+                {" "}
+                APR range (
+                {data?.staking.windowDays
+                  ? `${data.staking.windowDays}-day trailing`
+                  : "trailing"}
+                , volatile):{" "}
+                <strong style={{ color: "var(--color-silver-100)" }}>
+                  {stakingByApr[stakingByApr.length - 1]?.headline.display}
+                </strong>{" "}
+                (1 day) to{" "}
+                <strong style={{ color: "var(--color-silver-100)" }}>
+                  {stakingByApr[0]?.headline.display}
+                </strong>{" "}
+                (permanent).
+              </>
+            ) : (
+              <>
+                {" "}
+                Reward-weight multiplier from{" "}
+                <strong>{(staking.at(-1)?.multiplier ?? 1.01).toFixed(2)}×</strong>{" "}
+                (1 day) to{" "}
+                <strong style={{ color: "var(--color-silver-100)" }}>
+                  {(data?.staking.permanentMultiplier ?? 4).toFixed(2)}×
+                </strong>{" "}
+                (permanent).
+              </>
+            )}{" "}
             <a
               href="/staking"
               style={{ color: "var(--color-accent)", textDecoration: "none" }}
@@ -385,10 +429,18 @@ export default function EarnView() {
         }}
       >
         {data?.caption ??
-          "Mining Dividends (SLVR) and staking (ETH) aren't directly comparable — this ranks earning potential within each track."}{" "}
-        Source: live <code style={{ fontFamily: "var(--font-mono)" }}>dividends_apr</code>{" "}
-        snapshot + on-chain <code style={{ fontFamily: "var(--font-mono)" }}>TMAX / MMAX / P</code>.
-        Refreshed every 60s.
+          "Mining Dividends (SLVR) and staking (ETH) pay in different assets — compare within each track."}{" "}
+        Source: live{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>dividends_apr</code>{" "}
+        snapshot +{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>
+          rewardPerWeightStored
+        </code>{" "}
+        Δ + on-chain{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>
+          TMAX / MMAX / P
+        </code>
+        . Refreshed every 60s.
       </p>
     </>
   );

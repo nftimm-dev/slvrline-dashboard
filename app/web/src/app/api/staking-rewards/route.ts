@@ -1,106 +1,168 @@
 /**
  * GET /api/staking-rewards
  *
- * "Rewards by lock length" — how veSLVR staking rewards scale with lock duration.
+ * "Rewards by lock length" — ABSOLUTE ETH APR per veSLVR lock duration.
  *
- * veSLVR staking (0xaF68…7200) distributes protocol revenue by VOTING WEIGHT.
- * Weight = SLVR amount × a duration multiplier read live from the vote-escrow
- * contract (0xd9b8…3B71):
+ * METHOD (Synthetix-style; rewards are native ETH):
+ *   rewardPerWeightStored (rpw) is a monotonically increasing accumulator:
+ *     rpw += msg.value * 1e18 / totalWeight   (each distributeRoundRewards call)
+ *   Units: wei × 1e18 / weight
  *
- *     m(d) = 1 + (MMAX − 1) × min(d, TMAX)/TMAX      // time-locks, floor 1.0×
- *     m(permanent) = 1 + (MMAX − 1) × P              // permanent locks
+ *   Δrpw over a trailing window W = rpwHead − rpwOld (at block now−W)
+ *   ETH to stakers in W = Δrpw × totalWeight_raw / 1e36
+ *                       = Δrpw × totalWeight_human / 1e18  (since totalWeight_human = raw/1e18)
+ *   Per 1 SLVR at multiplier m:
+ *     APR(m) = (Δrpw × 365/Wdays / 1e18) × (ethUsd / slvrUsd) × m
  *
- * with on-chain constants TMAX = 4·30 days, MMAX = 2.5, P = 2.0 → time-locks ramp
- * 1.0×→2.5× over 4 months; permanent = 4.0×. Longer locks earn proportionally more.
+ *   Window: 7-day preferred; falls back to 3d / 1d on archival call failure.
+ *   Block time: 100ms (10 blocks/sec) → W_blocks = Wdays × 864,000
  *
- * WHY mode = "relative_weight" (NOT an absolute % APR):
- *   The reward token is native ETH (distributeRoundRewards is `payable`; rewards
- *   accrue as msg.value/weight via rewardPerWeightStored — verified on-chain), NOT
- *   the SLVR that is staked. A same-asset APR is therefore impossible without a
- *   volatile SLVR/ETH price conversion. Worse, the staking contract is ~15 days old
- *   and bootstrapping: totalWeight has grown ~1.7k→45k in two weeks, ~1,040 of the
- *   ~1,088 ETH ever routed here was parked in `unallocated` (no stakers at the round)
- *   and swept, and `totalRewardsOwed` is non-monotonic (drops on claims/burns). Any
- *   annualized rate swings from strongly negative to thousands of ETH/yr depending on
- *   the window. We refuse to fabricate an APR from that and instead publish the exact,
- *   price-independent reward-weight multiplier by lock length (source: getStakingWeight
- *   / TMAX / MMAX / P). The live rate context is returned for transparency only.
+ * CROSS-CHECK:
+ *   getStakerRewards(tokenId) scanned for tokenIds 1..20 to find a nonzero
+ *   claimable value — confirms the rate is real, not zero.
+ *
+ * Cache: 5 minutes.
  */
 import { NextResponse } from "next/server";
-import { ethCall, decodeUint256 } from "@/lib/rpc";
+import {
+  ethCall,
+  ethBlockNumber,
+  decodeUint256,
+  encodeUint256,
+} from "@/lib/rpc";
 import { withCache } from "@/lib/cache";
+import { getMarketData } from "@/lib/dexscreener";
 
 export const dynamic = "force-dynamic";
 
 const VE_ESCROW = "0xd9b8FBD61033145c5496132153CE675756313B71";
 const VE_STAKING = "0xaF68598eBd245DC3cB92FF16E9Ba1814DD137200";
 
-// Selectors (keccak256(sig)[:4]) — verified against the deployed contracts.
+// Verified selectors — keccak256(sig)[:4]
 const SEL = {
-  TMAX: "0x545dcac3", // TMAX()  → uint256
-  MMAX: "0xc656e634", // MMAX()  → uint256
-  P: "0x8b8fbd92", // P()     → uint256
-  rewardPerWeightStored: "0x3228dd59", // rewardPerWeightStored() → uint256
-  totalWeight: "0x96c82e57", // totalWeight() → uint256
-  totalRewardsOwed: "0xe02ce381", // totalRewardsOwed() → uint256
+  TMAX: "0x545dcac3", // TMAX()  → uint256 (VE_ESCROW)
+  MMAX: "0xc656e634", // MMAX()  → uint256 (VE_ESCROW)
+  P: "0x8b8fbd92", // P()     → uint256 (VE_ESCROW)
+  rewardPerWeightStored: "0x3228dd59", // rewardPerWeightStored() → uint256 (VE_STAKING)
+  totalWeight: "0x96c82e57", // totalWeight() → uint256 (VE_STAKING)
+  getStakerRewards: "0x4e63ddf4", // getStakerRewards(uint256) → uint256 (VE_STAKING)
 } as const;
 
 const WAD = 1e18;
-const CACHE_KEY = "staking:rewards-by-length";
-const CACHE_TTL_SECONDS = 300; // 5 min
+const BLOCK_TIME_SEC = 0.1; // 100ms Robinhood Chain
+const BLOCKS_PER_DAY = 86400 / BLOCK_TIME_SEC; // 864,000
 
-interface RewardWeightRow {
-  /** Machine key: "1mo" | "2mo" | "3mo" | "4mo" | "permanent". */
+const CACHE_KEY = "staking:rewards-apr";
+const CACHE_TTL_SEC = 300; // 5 min
+
+/** Lock configurations to report (matches /earn page). */
+const LOCK_CONFIGS: Array<{ key: string; label: string; days: number | null }> = [
+  { key: "1day", label: "1 day", days: 1 },
+  { key: "1week", label: "1 week", days: 7 },
+  { key: "1month", label: "1 month", days: 30 },
+  { key: "4months", label: "4 months", days: 120 },
+  { key: "permanent", label: "Permanent", days: null },
+];
+
+interface AprRow {
   key: string;
-  /** Human label, e.g. "1 month" / "4 months (max)" / "Permanent". */
   label: string;
-  /** Lock duration in days (null for permanent). */
   durationDays: number | null;
-  /** Reward-weight multiplier per SLVR at this lock length (e.g. 1.375, 2.5, 4.0). */
   multiplier: number;
-  /** multiplier relative to the 4-month max time-lock (MMAX) — 4mo = 1.00. */
-  relativeToMax: number;
+  aprPercent: number;
+  aprDisplay: string;
+}
+
+interface CrossCheck {
+  tokenId: number | null;
+  claimableEth: number | null;
+  deltaRpwEthPerWeightUnit: number | null;
+  consistent: boolean;
+  note: string;
 }
 
 interface StakingRewardsResponse {
-  /** "relative_weight" (exact, price-free) or "apr" (absolute %). */
-  mode: "relative_weight" | "apr";
-  /** The token protocol revenue is distributed in. */
+  mode: "apr";
   rewardToken: "ETH";
-  rows: RewardWeightRow[];
-  /** On-chain multiplier constants (1e18-scaled values decoded to floats). */
+  window_days: number;
+  eth_per_day: number;
+  ethUsd: number;
+  slvrUsd: number;
+  rows: AprRow[];
   params: {
     tmaxSeconds: number;
     tmaxMonths: number;
-    mmax: number; // max multiplier for time-locks (at TMAX)
-    permanentFactor: number; // P
-    permanentMultiplier: number; // 1 + (MMAX-1)*P
-    minMultiplier: number; // floor for an infinitesimal time-lock (1.0)
+    mmax: number;
+    permanentFactor: number;
+    permanentMultiplier: number;
   };
-  /** Live rate context — informational only; NOT used to derive an APR. */
   rateContext: {
-    rewardPerWeightStored: string;
+    rewardPerWeightStored_head: string;
+    rewardPerWeightStored_old: string;
+    deltaRpw: string;
     totalWeight: number;
-    lifetimeRewardsOwedEth: number;
-    note: string;
+    headBlock: number;
+    oldBlock: number;
   };
+  crossCheck: CrossCheck;
   source: string;
   updatedAt: string;
 }
 
-async function u(to: string, sel: string): Promise<bigint> {
-  return decodeUint256(await ethCall(to, sel, "latest"));
+/**
+ * Try archival eth_call at the target block, nudging ±blocks on error.
+ * Returns null if all attempts fail.
+ */
+async function archivalRpw(block: bigint): Promise<bigint | null> {
+  for (const delta of [0n, 5n, -5n, 15n, -15n, 50n, -50n]) {
+    const b = block + delta;
+    if (b <= 0n) continue;
+    try {
+      const raw = await ethCall(VE_STAKING, SEL.rewardPerWeightStored, b);
+      const val = decodeUint256(raw);
+      if (val >= 0n) return val; // 0 is valid (before first distribution)
+    } catch {
+      // try next nudge
+    }
+  }
+  return null;
+}
+
+/** Find first tokenId in 1..30 where getStakerRewards returns nonzero. */
+async function findCrossCheckToken(): Promise<{
+  tokenId: number;
+  rewards: bigint;
+} | null> {
+  for (let id = 1; id <= 30; id++) {
+    try {
+      const data = SEL.getStakerRewards + encodeUint256(BigInt(id));
+      const raw = await ethCall(VE_STAKING, data, "latest");
+      const val = decodeUint256(raw);
+      if (val > 0n) return { tokenId: id, rewards: val };
+    } catch {
+      // skip
+    }
+  }
+  return null;
+}
+
+function fmtPct(n: number): string {
+  if (n >= 1000)
+    return (
+      new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n) +
+      "%"
+    );
+  return n.toFixed(n >= 100 ? 0 : 1) + "%";
 }
 
 async function build(): Promise<StakingRewardsResponse> {
-  // Read the multiplier constants live so the display tracks the contract.
-  const [tmaxRaw, mmaxRaw, pRaw, rpws, totalW, owed] = await Promise.all([
-    u(VE_ESCROW, SEL.TMAX),
-    u(VE_ESCROW, SEL.MMAX),
-    u(VE_ESCROW, SEL.P),
-    u(VE_STAKING, SEL.rewardPerWeightStored),
-    u(VE_STAKING, SEL.totalWeight),
-    u(VE_STAKING, SEL.totalRewardsOwed),
+  // 1. Fetch escrow constants + head block + market data in parallel
+  const [tmaxRaw, mmaxRaw, pRaw, headBlock, market] = await Promise.all([
+    ethCall(VE_ESCROW, SEL.TMAX, "latest").then(decodeUint256),
+    ethCall(VE_ESCROW, SEL.MMAX, "latest").then(decodeUint256),
+    ethCall(VE_ESCROW, SEL.P, "latest").then(decodeUint256),
+    ethBlockNumber(),
+    getMarketData(),
   ]);
 
   const tmaxSeconds = Number(tmaxRaw); // e.g. 10,368,000
@@ -108,43 +170,118 @@ async function build(): Promise<StakingRewardsResponse> {
   const permanentFactor = Number(pRaw) / WAD; // e.g. 2.0
   const permanentMultiplier = 1 + (mmax - 1) * permanentFactor; // 4.0
 
-  // m(d) = 1 + (MMAX-1) * min(d,TMAX)/TMAX  (matches getStakingWeight)
-  const multForDuration = (days: number): number => {
-    const d = Math.min(days * 86400, tmaxSeconds);
-    return 1 + (mmax - 1) * (d / tmaxSeconds);
+  const ethUsd = market.eth_usd;
+  const slvrUsd = market.slvr_usd;
+
+  // 2. Read rpwHead + totalWeight at head
+  const [rpwHeadRaw, totalWeightRaw] = await Promise.all([
+    ethCall(VE_STAKING, SEL.rewardPerWeightStored, "latest").then(
+      decodeUint256
+    ),
+    ethCall(VE_STAKING, SEL.totalWeight, "latest").then(decodeUint256),
+  ]);
+
+  const rpwHead = rpwHeadRaw;
+  const totalWeight = Number(totalWeightRaw) / WAD;
+
+  // 3. Try trailing windows: 7d → 3d → 1d
+  let windowDays = 0;
+  let rpwOld: bigint = 0n;
+  let oldBlock = 0n;
+
+  for (const days of [7, 3, 1]) {
+    const wBlocks = BigInt(Math.round(days * BLOCKS_PER_DAY));
+    const candidateBlock = headBlock > wBlocks ? headBlock - wBlocks : 1n;
+    const result = await archivalRpw(candidateBlock);
+
+    // Accept if we got a result AND it's less than head (Δrpw > 0)
+    if (result !== null && result < rpwHead) {
+      windowDays = days;
+      rpwOld = result;
+      oldBlock = candidateBlock;
+      break;
+    }
+    // If result === rpwHead, that means no rewards in this window — try shorter
+  }
+
+  if (windowDays === 0) {
+    throw new Error(
+      "Could not obtain archival rewardPerWeightStored with Δ>0 for any window (7d/3d/1d)"
+    );
+  }
+
+  const deltaRpw = rpwHead - rpwOld; // wei*1e18/weight accumulated over window
+
+  // eth_in_window = deltaRpw * totalWeight_raw / 1e36
+  // totalWeight here is already in human units (raw / 1e18), so:
+  //   = deltaRpw * totalWeight / 1e18
+  const ethInWindow = (Number(deltaRpw) / 1e18) * totalWeight;
+  const ethPerDay = ethInWindow / windowDays;
+
+  // 4. Multiplier formula: m(d) = 1 + (MMAX-1) * min(d_sec, TMAX) / TMAX
+  const multForDays = (days: number): number => {
+    const dSec = Math.min(days * 86400, tmaxSeconds);
+    return 1 + (mmax - 1) * (dSec / tmaxSeconds);
   };
 
-  const monthDays = tmaxSeconds / 86400 / 4; // TMAX is 4 months → one "month" unit
-  const durations = [
-    { key: "1mo", months: 1 },
-    { key: "2mo", months: 2 },
-    { key: "3mo", months: 3 },
-    { key: "4mo", months: 4 },
-  ];
+  // 5. Build APR rows
+  // APR(m) = (Δrpw * 365/windowDays / 1e18) * (ethUsd / slvrUsd) * m * 100
+  const aprBaseScalar =
+    (Number(deltaRpw) / 1e18) * (365 / windowDays) * (ethUsd / slvrUsd);
 
-  const rows: RewardWeightRow[] = durations.map(({ key, months }) => {
-    const days = monthDays * months;
-    const multiplier = multForDuration(days);
+  const rows: AprRow[] = LOCK_CONFIGS.map(({ key, label, days }) => {
+    const m = days === null ? permanentMultiplier : multForDays(days);
+    const aprPercent = aprBaseScalar * m * 100;
     return {
       key,
-      label: months === 4 ? "4 months (max)" : `${months} month${months > 1 ? "s" : ""}`,
-      durationDays: Math.round(days),
-      multiplier,
-      relativeToMax: multiplier / mmax,
+      label,
+      durationDays: days,
+      multiplier: m,
+      aprPercent,
+      aprDisplay: fmtPct(aprPercent),
     };
   });
 
-  rows.push({
-    key: "permanent",
-    label: "Permanent",
-    durationDays: null,
-    multiplier: permanentMultiplier,
-    relativeToMax: permanentMultiplier / mmax,
-  });
+  // 6. Cross-check via getStakerRewards (nonzero = rate is real)
+  let crossCheck: CrossCheck;
+  try {
+    const deltaRpwEthPerWeightUnit = Number(deltaRpw) / 1e18; // ETH per human-weight-unit over window
+    const found = await findCrossCheckToken();
+    if (found) {
+      const claimableEth = Number(found.rewards) / WAD;
+      crossCheck = {
+        tokenId: found.tokenId,
+        claimableEth,
+        deltaRpwEthPerWeightUnit,
+        consistent: claimableEth > 0,
+        note: `tokenId=${found.tokenId} has ${claimableEth.toFixed(6)} ETH claimable. Δrpw per-weight-unit over ${windowDays}d window = ${deltaRpwEthPerWeightUnit.toExponential(4)} ETH. Since getStakerRewards ≈ weight × (rpwHead − rpwPaid) / 1e18, a nonzero claimable confirms the rate is real. Order-of-magnitude check: if this tokenId has weight ~ a few 1e18 units, claimable should be in the same ballpark as weight × deltaRpwEthPerWeightUnit.`,
+      };
+    } else {
+      crossCheck = {
+        tokenId: null,
+        claimableEth: null,
+        deltaRpwEthPerWeightUnit,
+        consistent: false,
+        note: "No nonzero getStakerRewards found for tokenIds 1–30. May mean all early tokenIds have claimed. Rate still derived from Δrpw which is authoritative.",
+      };
+    }
+  } catch (e) {
+    crossCheck = {
+      tokenId: null,
+      claimableEth: null,
+      deltaRpwEthPerWeightUnit: null,
+      consistent: false,
+      note: `Cross-check failed: ${String(e)}`,
+    };
+  }
 
   return {
-    mode: "relative_weight",
+    mode: "apr",
     rewardToken: "ETH",
+    window_days: windowDays,
+    eth_per_day: ethPerDay,
+    ethUsd,
+    slvrUsd,
     rows,
     params: {
       tmaxSeconds,
@@ -152,35 +289,35 @@ async function build(): Promise<StakingRewardsResponse> {
       mmax,
       permanentFactor,
       permanentMultiplier,
-      minMultiplier: 1,
     },
     rateContext: {
-      rewardPerWeightStored: rpws.toString(),
-      totalWeight: Number(totalW) / WAD,
-      lifetimeRewardsOwedEth: Number(owed) / WAD,
-      note:
-        "Rewards are distributed in ETH by voting weight. An absolute APR is not shown: " +
-        "the reward token differs from the staked token (SLVR) and the staking contract " +
-        "is newly live with an unstable, still-ramping reward rate.",
+      rewardPerWeightStored_head: rpwHead.toString(),
+      rewardPerWeightStored_old: rpwOld.toString(),
+      deltaRpw: deltaRpw.toString(),
+      totalWeight,
+      headBlock: Number(headBlock),
+      oldBlock: Number(oldBlock),
     },
-    source: "getStakingWeight / TMAX / MMAX / P (0xd9b8…3B71) + veSLVR staking state (0xaF68…7200)",
+    crossCheck,
+    source:
+      "rewardPerWeightStored Δ (VE_STAKING 0xaF68…7200) + TMAX/MMAX/P (VE_ESCROW 0xd9b8…3B71) + Dexscreener + slvr.fun/api/price/eth",
     updatedAt: new Date().toISOString(),
   };
 }
 
 export async function GET() {
   try {
-    const data = await withCache(CACHE_KEY, CACHE_TTL_SECONDS, build);
+    const data = await withCache(CACHE_KEY, CACHE_TTL_SEC, build);
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": "public, max-age=300",
-        "X-Data-Sources": "robinhood-rpc",
+        "X-Data-Sources": "robinhood-rpc,dexscreener,slvr.fun",
       },
     });
   } catch (err) {
     console.error("[/api/staking-rewards] error:", err);
     return NextResponse.json(
-      { error: "Staking-rewards data temporarily unavailable" },
+      { error: "Staking-rewards APR data temporarily unavailable" },
       { status: 502 }
     );
   }
