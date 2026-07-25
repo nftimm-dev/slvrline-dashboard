@@ -74,6 +74,8 @@ export interface RawHolder {
   address: string;
   isContract: boolean;
   balanceRaw: bigint;
+  /** On-chain contract name from Blockscout, if any (fallback label). */
+  onchainName: string | null;
 }
 
 /**
@@ -92,5 +94,6 @@ export async function getTopHolders(tokenAddr: string): Promise<RawHolder[]> {
       address: it.address!.hash as string,
       isContract: Boolean(it.address!.is_contract),
       balanceRaw: BigInt(it.value as string),
+      onchainName: it.address!.name ?? null,
     }));
 }
