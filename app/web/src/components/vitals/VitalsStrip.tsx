@@ -2,12 +2,7 @@
 
 import { useVitals } from "@/hooks/useVitals";
 import VitalCard from "./VitalCard";
-import {
-  formatAPR,
-  formatSLVR,
-  formatUSD,
-  formatRunway,
-} from "@/lib/format";
+import { formatAPR, formatSLVR, formatUSD } from "@/lib/format";
 import FreshnessChip from "./FreshnessChip";
 import { useHistory, type UseHistoryResult } from "@/hooks/useHistory";
 
@@ -72,9 +67,8 @@ export default function VitalsStrip() {
   const apr = data?.dividends_apr ?? null;
   const supply = data?.circulating_supply ?? null;
   const staked = data?.total_staked_slvr ?? null;
-  const runway = data?.runway_months ?? null;
   const price = data?.price ?? null;
-  const fresh = apr ?? supply ?? staked ?? runway;
+  const fresh = apr ?? supply ?? staked;
 
   // Emitted (totalSupply + cumulative burns) comes through circulating_supply.metadata.
   // This — not totalSupply — drives the "% mined / 500K" progress toward the cap.
@@ -88,7 +82,6 @@ export default function VitalsStrip() {
   // Faint background trend for the cards that have a time-series.
   const aprHist = useHistory("dividends_apr", "24h");
   const supHist = useHistory("circulating_supply", "24h");
-  const runHist = useHistory("runway_months", "24h");
   const sparkOf = (h: UseHistoryResult): number[] =>
     (h.data?.rows ?? [])
       .map((r) => r.v)
@@ -111,7 +104,7 @@ export default function VitalsStrip() {
         APR card: span-2 on mobile, span-1 on sm+
         Price card: span-2 on mobile, span-1 on sm+
         sm: 3-col
-        lg: 5-col (all cards inline)
+        lg: 4-col (all cards inline)
       */}
       <div className="vitals-grid grid gap-3">
         {/* Card 0: Dividends APR */}
@@ -171,25 +164,7 @@ export default function VitalsStrip() {
           />
         </div>
 
-        {/* Card 3: Runway */}
-        <div>
-          <VitalCard
-            label="RUNWAY"
-            primary={runway?.value != null ? formatRunway(runway.value) : "—"}
-            secondary={
-              runway?.value2 != null
-                ? `${formatSLVR(runway.value2)} remaining`
-                : undefined
-            }
-            colorVar="--color-supply"
-            snapshotAt={runway?.snapshot_at}
-            blockNumber={runway?.block_number}
-            loading={isLoading && !runway}
-            sparkline={sparkOf(runHist)}
-          />
-        </div>
-
-        {/* Card 4: SLVR Price — full width on mobile */}
+        {/* Card 3: SLVR Price — full width on mobile */}
         <div className="vitals-price-col">
           <VitalCard
             label="SLVR PRICE"
@@ -226,7 +201,7 @@ export default function VitalsStrip() {
         }
         @media (min-width: 1024px) {
           .vitals-grid {
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
           }
         }
       `}</style>
