@@ -4,9 +4,12 @@ import PageHeader from "@/components/analytics/PageHeader";
 import EarnView from "@/components/earn/EarnView";
 
 export const metadata: Metadata = {
-  title: "Earn — SLVRline",
+  title: "Earn",
   description:
     "How can I earn the most on SLVR? A ranked comparison of every way to earn — mining dividends (SLVR) and veSLVR staking by lock length (ETH) — with a plain-English how-to for each.",
+  alternates: {
+    canonical: "/earn",
+  },
 };
 
 export default function EarnPage() {

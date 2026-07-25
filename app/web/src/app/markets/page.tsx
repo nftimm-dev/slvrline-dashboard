@@ -4,9 +4,12 @@ import PageHeader from "@/components/analytics/PageHeader";
 import MarketsView from "@/components/markets/MarketsView";
 
 export const metadata: Metadata = {
-  title: "Markets — SLVRline",
+  title: "Markets",
   description:
     "SLVR liquidity and 24h volume across every Dexscreener-indexed pool on Robinhood Chain — Uniswap v2 and v4.",
+  alternates: {
+    canonical: "/markets",
+  },
 };
 
 export default function MarketsPage() {
