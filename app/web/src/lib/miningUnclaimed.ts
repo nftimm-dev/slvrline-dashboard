@@ -82,6 +82,12 @@ export interface UnclaimedMinerRow {
   refinedAccruedSlvr: number;
 }
 
+/** Minimal per-miner owed amount — the FULL owed set (not just the top-N). */
+export interface MinerOwed {
+  address: string;
+  unclaimedSlvr: number;
+}
+
 export interface MiningUnclaimedData {
   /** Contract aggregate: totalUnclaimed() in SLVR — the pool total. */
   totalUnclaimed: number;
@@ -99,6 +105,12 @@ export interface MiningUnclaimedData {
   minerIndex: number;
   /** Top-N miners owed, ranked desc by unclaimed SLVR. */
   top: UnclaimedMinerRow[];
+  /**
+   * EVERY owed miner (address + unclaimedSlvr), ranked desc — the full set that
+   * SUMS to sumMinerUnclaimed. Used by economic-holders reattribution so no
+   * miner is dropped by the top-N cut. Kept lean (no labels/urls).
+   */
+  allMiners: MinerOwed[];
   atBlock: string;
   cachedAt: string;
   cacheTtlSeconds: number;
@@ -389,6 +401,12 @@ async function fetchMiningUnclaimed(): Promise<MiningUnclaimedData> {
     refinedAccruedSlvr: Number(o.refinedRaw) / WAD,
   }));
 
+  // Full owed set (already sorted desc) — SUMS to sumMinerUnclaimed exactly.
+  const allMiners: MinerOwed[] = owed.map((o) => ({
+    address: o.address,
+    unclaimedSlvr: Number(o.rewardsRaw) / WAD,
+  }));
+
   const sumMinerUnclaimed = Number(sumRaw) / WAD;
   const reconciliationResidual = totalUnclaimed - sumMinerUnclaimed;
   const reconciliationPct =
@@ -405,6 +423,7 @@ async function fetchMiningUnclaimed(): Promise<MiningUnclaimedData> {
     minerCount: owed.length,
     minerIndex,
     top,
+    allMiners,
     atBlock,
     cachedAt: new Date().toISOString(),
     cacheTtlSeconds: CACHE_TTL,

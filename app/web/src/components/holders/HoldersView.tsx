@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import useSWR from "swr";
 import StatCard from "@/components/analytics/StatCard";
 import Panel from "@/components/analytics/Panel";
@@ -24,16 +25,66 @@ function slvr(n: number, decimals = 2): string {
   );
 }
 
+function num(n: number, decimals = 0): string {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(n);
+}
+
 function shortLabel(h: HolderRow): string {
   if (h.label) return h.label;
   return `${h.address.slice(0, 6)}…${h.address.slice(-4)}`;
 }
 
+/**
+ * Economic composition line: "wallet 800 · unclaimed 300 · staked 100" — only
+ * the non-zero parts. Each source tinted with its own accent for a quick read.
+ */
+function Composition({ h }: { h: HolderRow }) {
+  const c = h.composition;
+  if (!c) return null;
+  const parts: Array<{ label: string; value: number; colorVar: string }> = [
+    { label: "wallet", value: c.wallet, colorVar: "--color-supply" },
+    { label: "unclaimed", value: c.unclaimed, colorVar: "--color-staking" },
+    { label: "staked", value: c.staked, colorVar: "--color-apr" },
+  ].filter((p) => p.value > 0.005);
+
+  if (parts.length <= 1) return null; // single-source → breakdown adds nothing
+
+  return (
+    <div
+      style={{
+        marginTop: 3,
+        fontSize: "0.6875rem",
+        color: "var(--color-silver-400)",
+        fontFamily: "var(--font-mono)",
+        display: "flex",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 6,
+      }}
+    >
+      {parts.map((p, i) => (
+        <span key={p.label} style={{ display: "inline-flex", gap: 4 }}>
+          {i > 0 && (
+            <span style={{ color: "var(--color-silver-700)" }}>·</span>
+          )}
+          <span style={{ color: `var(${p.colorVar})` }}>{p.label}</span>
+          <span style={{ color: "var(--color-silver-300)" }}>{num(p.value)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 export default function HoldersView() {
+  const [economic, setEconomic] = useState(false);
+
   const { data, error, isLoading } = useSWR<HoldersData>(
-    "/api/holders",
+    economic ? "/api/holders?economic=1" : "/api/holders",
     fetcher,
-    { refreshInterval: 300_000 }
+    { refreshInterval: 300_000, revalidateOnFocus: false }
   );
 
   const failed = !!error;
@@ -59,16 +110,19 @@ export default function HoldersView() {
       key: "addr",
       header: "Holder",
       render: (h) => (
-        <AddressCell
-          address={h.address}
-          label={h.label}
-          isContract={h.isContract}
-        />
+        <div>
+          <AddressCell
+            address={h.address}
+            label={h.label}
+            isContract={h.isContract}
+          />
+          {economic && <Composition h={h} />}
+        </div>
       ),
     },
     {
       key: "bal",
-      header: "Balance",
+      header: economic ? "Economic balance" : "Balance",
       align: "right",
       mono: true,
       render: (h) => slvr(h.balanceSlvr),
@@ -107,7 +161,7 @@ export default function HoldersView() {
         <StatCard
           label="TOP-10 CONCENTRATION"
           primary={data ? `${data.top10Pct.toFixed(1)}%` : "—"}
-          secondary="of current supply"
+          secondary={economic ? "economic · of supply" : "of current supply"}
           colorVar="--color-staking"
           loading={isLoading && !data}
         />
@@ -120,9 +174,36 @@ export default function HoldersView() {
         />
       </div>
 
+      {/* Economic-attribution toggle */}
+      <EconomicToggle checked={economic} onChange={setEconomic} />
+
+      {economic && (
+        <p
+          style={{
+            fontSize: "0.75rem",
+            color: "var(--color-silver-400)",
+            margin: "0 0 20px",
+            lineHeight: 1.5,
+            maxWidth: "68ch",
+          }}
+        >
+          <strong style={{ color: "var(--color-silver-300)" }}>
+            Economic view.
+          </strong>{" "}
+          The Grid Mining contract holds{" "}
+          <span style={{ color: "var(--color-staking)" }}>unclaimed SLVR</span>{" "}
+          owed to individual miners, and the Vote Escrow contract holds{" "}
+          <span style={{ color: "var(--color-apr)" }}>time-locked SLVR</span>{" "}
+          owned by individual stakers. Here those pooled balances are
+          reattributed to the real owners — a pure reattribution, so the total is
+          unchanged.{" "}
+          <em>Permanent locks are burned (removed from supply) and excluded.</em>
+        </p>
+      )}
+
       {/* Top 10 bar chart */}
       <Panel
-        title="Top 10 holders"
+        title={economic ? "Top 10 economic holders" : "Top 10 holders"}
         note={
           <span>
             <span style={{ color: "var(--color-staking)" }}>■</span> contract{" "}
@@ -150,7 +231,11 @@ export default function HoldersView() {
       </Panel>
 
       {/* Full ranked table */}
-      <Panel title="Holder rankings" note="protocol addresses tagged" flush>
+      <Panel
+        title={economic ? "Economic holder rankings" : "Holder rankings"}
+        note="protocol addresses tagged"
+        flush
+      >
         {failed ? (
           <StateMessage
             tone="error"
@@ -177,12 +262,110 @@ export default function HoldersView() {
           marginTop: 4,
         }}
       >
-        Source: Blockscout token holders. Percentages are of current{" "}
-        <code style={{ fontFamily: "var(--font-mono)" }}>totalSupply()</code>.
-        Protocol contracts (vote escrow, lottery, LP, DEX pools) are tagged{" "}
-        <em>contract</em> — much of the top of the list is protocol-owned, not
-        individual wallets. Cached 5 min.
+        {economic ? (
+          <>
+            Economic view: Blockscout wallet balances with the Grid Mining
+            unclaimed pool (per-miner <code style={{ fontFamily: "var(--font-mono)" }}>rewardsSlvr</code>)
+            and the Vote Escrow time-locked pool (per-owner non-permanent locks)
+            reattributed to their owners. Permanent locks are burned and
+            excluded. Percentages are of current{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>totalSupply()</code>.
+            Cached 5 min.
+          </>
+        ) : (
+          <>
+            Source: Blockscout token holders. Percentages are of current{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>totalSupply()</code>.
+            Protocol contracts (vote escrow, lottery, LP, DEX pools) are tagged{" "}
+            <em>contract</em> — much of the top of the list is protocol-owned, not
+            individual wallets. Cached 5 min.
+          </>
+        )}
       </p>
     </>
+  );
+}
+
+/** Silver-styled checkbox row that switches raw ↔ economic attribution. */
+function EconomicToggle({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 10,
+        cursor: "pointer",
+        userSelect: "none",
+        marginBottom: checked ? 12 : 20,
+        padding: "9px 14px",
+        borderRadius: "var(--radius-chip)",
+        border: "1px solid var(--color-silver-800)",
+        backgroundColor: "var(--color-silver-900)",
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          position: "relative",
+          width: 16,
+          height: 16,
+          flexShrink: 0,
+          borderRadius: 4,
+          border: `1px solid ${
+            checked ? "var(--color-accent)" : "var(--color-silver-700)"
+          }`,
+          backgroundColor: checked ? "var(--color-accent)" : "transparent",
+          transition: "background-color 120ms, border-color 120ms",
+        }}
+      >
+        {checked && (
+          <svg
+            viewBox="0 0 16 16"
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+            }}
+          >
+            <path
+              d="M4 8.2l2.6 2.6L12 5.4"
+              fill="none"
+              stroke="var(--color-silver-950)"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{
+          position: "absolute",
+          width: 1,
+          height: 1,
+          opacity: 0,
+          pointerEvents: "none",
+        }}
+      />
+      <span
+        style={{
+          fontSize: "0.8125rem",
+          fontWeight: 500,
+          color: checked ? "var(--color-silver-100)" : "var(--color-silver-300)",
+        }}
+      >
+        Include unclaimed &amp; time-locked SLVR
+      </span>
+    </label>
   );
 }
