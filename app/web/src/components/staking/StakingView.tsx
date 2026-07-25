@@ -13,6 +13,27 @@ import AddressCell from "@/components/analytics/AddressCell";
 import StateMessage from "@/components/analytics/StateMessage";
 import type { StakingData, TopLocker } from "@/lib/staking";
 
+interface RewardWeightRow {
+  key: string;
+  label: string;
+  durationDays: number | null;
+  multiplier: number;
+  relativeToMax: number;
+}
+
+interface StakingRewardsData {
+  mode: "relative_weight" | "apr";
+  rewardToken: string;
+  rows: RewardWeightRow[];
+  params: {
+    tmaxMonths: number;
+    mmax: number;
+    permanentMultiplier: number;
+  };
+  rateContext: { note: string };
+  source: string;
+}
+
 const fetcher = (url: string) =>
   fetch(url).then((r) => {
     if (!r.ok) throw new Error(String(r.status));
@@ -74,7 +95,20 @@ export default function StakingView() {
     }
   );
 
+  const { data: rewards, error: rewardsError } = useSWR<StakingRewardsData>(
+    "/api/staking-rewards",
+    fetcher,
+    { refreshInterval: 300_000, revalidateOnFocus: false } // 5 min (matches server cache)
+  );
+
   const failed = !!error;
+
+  const rewardBars: BarDatum[] = (rewards?.rows ?? []).map((r) => ({
+    label: r.label,
+    value: r.multiplier,
+    color:
+      r.key === "permanent" ? "var(--color-supply)" : "var(--color-staking)",
+  }));
 
   const donutSlices: DonutSlice[] = data
     ? [
@@ -234,7 +268,15 @@ export default function StakingView() {
       </div>
 
       {/* Top lockers */}
-      <Panel title="Top lockers" note="by total locked SLVR" flush>
+      <Panel
+        title="Top lockers"
+        note={
+          data
+            ? `Top ${data.topLockers.length} of ${data.activeLockCount.toLocaleString()} locks · ${data.uniqueOwners.toLocaleString()} owners`
+            : "by total locked SLVR"
+        }
+        flush
+      >
         {failed ? (
           <StateMessage
             tone="error"
@@ -250,7 +292,55 @@ export default function StakingView() {
             loading={isLoading && !data}
             skeletonRows={8}
             emptyMessage="No active locks found"
+            maxHeight={440}
           />
+        )}
+      </Panel>
+
+      {/* Rewards by lock length */}
+      <Panel
+        title="Rewards by lock length"
+        note="relative veSLVR reward weight — longer locks earn proportionally more"
+      >
+        {rewardsError ? (
+          <StateMessage
+            tone="error"
+            title="Reward-weight data unavailable"
+            detail="Could not read the vote-escrow multiplier constants from the Robinhood RPC."
+            height={220}
+          />
+        ) : (
+          <>
+            <BarChartSvg
+              data={rewardBars}
+              layout="horizontal"
+              color="var(--color-staking)"
+              valueLabel="Weight ×"
+              format={(n) => `${n.toFixed(3)}×`}
+              height={220}
+            />
+            <p
+              style={{
+                fontSize: "0.6875rem",
+                color: "var(--color-silver-400)",
+                marginTop: 12,
+                lineHeight: 1.5,
+              }}
+            >
+              Reward <strong>weight multiplier per SLVR</strong>, not an APR. veSLVR
+              staking pays protocol revenue (in{" "}
+              {rewards?.rewardToken ?? "ETH"}) pro-rata to voting weight, and weight
+              scales linearly with lock length — from{" "}
+              <strong>1.0×</strong> up to <strong>{(rewards?.params.mmax ?? 2.5).toFixed(2)}×</strong>{" "}
+              at the {rewards?.params.tmaxMonths ?? 4}-month max lock, with permanent
+              locks fixed at <strong>{(rewards?.params.permanentMultiplier ?? 4).toFixed(1)}×</strong>.
+              So a 4-month lock earns ~{((rewards?.params.mmax ?? 2.5) / 1.375).toFixed(1)}×
+              the rewards of a 1-month lock on the same SLVR. An absolute % APR is not
+              shown because rewards are paid in a different asset (ETH) than is staked
+              (SLVR) and the staking contract is newly live with a still-ramping rate.
+              Source: <code>getStakingWeight</code> · TMAX / MMAX / P.
+            </p>
+          </>
         )}
       </Panel>
 

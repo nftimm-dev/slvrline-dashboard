@@ -27,7 +27,7 @@ import { getHead } from "./block-resolver";
 import { SLVR_CAP } from "./constants";
 
 const SCALE = 1e18;
-const TOP_LOCKERS = 12;
+const TOP_LOCKERS = 100;
 
 type TopLocker = {
   owner: string;
@@ -38,7 +38,7 @@ type TopLocker = {
 
 type SizeBucket = { range: string; count: number; totalSlvr: number };
 
-/** Top 12 owners by aggregate active-lock amount (grouped, summed across their locks). */
+/** Top N owners by aggregate active-lock amount (grouped, summed across their locks). */
 function buildTopLockers(locks: VeLock[]): TopLocker[] {
   const byOwner = new Map<string, { amount: bigint; count: number; perm: number }>();
   for (const l of locks) {

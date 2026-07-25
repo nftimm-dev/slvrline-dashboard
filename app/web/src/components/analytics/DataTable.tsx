@@ -21,6 +21,8 @@ interface DataTableProps<Row> {
   loading?: boolean;
   skeletonRows?: number;
   emptyMessage?: string;
+  /** Constrain height and scroll vertically past this (px). Header stays pinned. */
+  maxHeight?: number;
 }
 
 /**
@@ -34,11 +36,16 @@ export default function DataTable<Row>({
   loading = false,
   skeletonRows = 8,
   emptyMessage = "No data available",
+  maxHeight,
 }: DataTableProps<Row>) {
   const showSkeleton = loading && rows.length === 0;
+  const scroll = maxHeight !== undefined;
 
   return (
-    <div className="overflow-x-auto">
+    <div
+      className="overflow-x-auto"
+      style={scroll ? { maxHeight, overflowY: "auto" } : undefined}
+    >
       <table
         style={{
           width: "100%",
@@ -63,6 +70,9 @@ export default function DataTable<Row>({
                   whiteSpace: "nowrap",
                   width: col.width,
                   backgroundColor: "var(--color-silver-900)",
+                  ...(scroll
+                    ? { position: "sticky" as const, top: 0, zIndex: 1 }
+                    : {}),
                 }}
               >
                 {col.header}
