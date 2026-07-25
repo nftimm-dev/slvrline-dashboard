@@ -3,7 +3,6 @@ import VitalsStrip from "@/components/vitals/VitalsStrip";
 import AprChartSection from "@/components/charts/AprChartSection";
 import SupplyChartSection from "@/components/charts/SupplyChartSection";
 import StakingChartSection from "@/components/charts/StakingChartSection";
-import LotteryChartSection from "@/components/charts/LotteryChartSection";
 import PriceDisplay from "@/components/charts/PriceDisplay";
 
 export default function Home() {
@@ -25,7 +24,6 @@ export default function Home() {
         <AprChartSection />
         <SupplyChartSection />
         <StakingChartSection />
-        <LotteryChartSection />
         <PriceDisplay />
       </PageContainer>
     </main>
