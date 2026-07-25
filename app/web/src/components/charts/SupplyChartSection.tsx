@@ -33,7 +33,15 @@ export default function SupplyChartSection() {
           backgroundColor: "var(--color-silver-900)",
         }}
       >
-        <LineChartSvg data={data} isLoading={isLoading} series={[{ key: "v", color: "#c8b8f0" }, { key: "v2", color: "#8888bb" }]} />
+        <LineChartSvg
+          data={data}
+          isLoading={isLoading}
+          series={[
+            { key: "v", color: "#c8b8f0", label: "Circulating" },
+            { key: "v2", color: "#8888bb", label: "Total" },
+          ]}
+          format={(n) => Math.round(n).toLocaleString() + " SLVR"}
+        />
       </div>
     </section>
   );

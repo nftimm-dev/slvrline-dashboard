@@ -1,5 +1,14 @@
 "use client";
 
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type { HistoryResponse } from "@/hooks/useHistory";
 
 export interface ChartSeries {
@@ -12,33 +21,99 @@ interface Props {
   data: HistoryResponse | undefined;
   isLoading: boolean;
   series: ChartSeries[];
+  format?: (n: number) => string;
+}
+
+const fmtDay = (t: number) =>
+  new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const fmtFull = (t: number) =>
+  new Date(t).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+function compact(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e9) return (n / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (a >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+interface TipPayloadItem {
+  dataKey: string;
+  value: number;
+  color: string;
+}
+
+function ChartTooltip(props: {
+  active?: boolean;
+  label?: number;
+  payload?: TipPayloadItem[];
+  series: ChartSeries[];
+  format: (n: number) => string;
+}) {
+  const { active, label, payload, series, format } = props;
+  if (!active || !payload || payload.length === 0) return null;
+  return (
+    <div
+      style={{
+        background: "#14171c",
+        border: "1px solid var(--color-silver-700)",
+        borderRadius: 8,
+        padding: "8px 10px",
+        fontSize: 12,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.45)",
+        minWidth: 140,
+      }}
+    >
+      <div style={{ color: "var(--color-silver-400)", marginBottom: 5 }}>
+        {label != null ? fmtFull(label) : ""}
+      </div>
+      {payload.map((p) => {
+        const s = series.find((x) => x.key === p.dataKey);
+        return (
+          <div
+            key={p.dataKey}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              color: "var(--color-silver-100)",
+              lineHeight: 1.6,
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 2,
+                background: p.color,
+                display: "inline-block",
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ color: "var(--color-silver-400)" }}>{s?.label ?? p.dataKey}</span>
+            <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+              {format(p.value)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /**
- * Dependency-free, SSR-safe line/area chart rendered as inline SVG.
- * Replaces the canvas charting libs (echarts / lightweight-charts), whose
- * dynamic imports silently failed to mount in the Next 15 production bundle.
+ * Interactive time-series chart (recharts). Renders as SVG in the React tree —
+ * unlike the canvas libs (echarts/lightweight-charts) whose dynamic imports
+ * silently failed to mount in this Next 15 build. Hover for crosshair + tooltip.
  */
-export default function LineChartSvg({ data, isLoading, series }: Props) {
-  const W = 1000;
-  const H = 256;
-  const padL = 6;
-  const padR = 6;
-  const padT = 16;
-  const padB = 16;
-
-  const rows = data?.rows ?? [];
-  const pts = series.map((s) =>
-    rows
-      .map((r) => ({ t: Date.parse(r.t), y: r[s.key] }))
-      .filter(
-        (p): p is { t: number; y: number } =>
-          p.y !== null && Number.isFinite(p.y) && Number.isFinite(p.t)
-      )
-  );
-
-  const allY = pts.flat().map((p) => p.y);
-  const allT = pts.flat().map((p) => p.t);
+export default function LineChartSvg({ data, isLoading, series, format }: Props) {
+  const fmt =
+    format ?? ((n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 }));
 
   if (isLoading && !data) {
     return (
@@ -53,7 +128,15 @@ export default function LineChartSvg({ data, isLoading, series }: Props) {
     );
   }
 
-  if (allY.length === 0) {
+  const rows = (data?.rows ?? [])
+    .map((r) => ({ t: Date.parse(r.t), v: r.v, v2: r.v2, v3: r.v3 }))
+    .filter(
+      (r) =>
+        Number.isFinite(r.t) &&
+        series.some((s) => r[s.key] !== null && Number.isFinite(r[s.key] as number))
+    );
+
+  if (rows.length === 0) {
     return (
       <div
         style={{
@@ -71,58 +154,63 @@ export default function LineChartSvg({ data, isLoading, series }: Props) {
     );
   }
 
-  const minY = Math.min(...allY);
-  const maxY = Math.max(...allY);
-  const minT = Math.min(...allT);
-  const maxT = Math.max(...allT);
-  const spanY = maxY - minY || 1;
-  const spanT = maxT - minT || 1;
-
-  const sx = (t: number) => padL + ((t - minT) / spanT) * (W - padL - padR);
-  const sy = (v: number) => padT + (1 - (v - minY) / spanY) * (H - padT - padB);
-
-  const toLine = (p: { t: number; y: number }[]) =>
-    p.map((q, i) => `${i ? "L" : "M"}${sx(q.t).toFixed(1)} ${sy(q.y).toFixed(1)}`).join(" ");
-  const toArea = (p: { t: number; y: number }[]) =>
-    p.length
-      ? `${toLine(p)} L${sx(p[p.length - 1].t).toFixed(1)} ${H - padB} L${sx(p[0].t).toFixed(1)} ${H - padB} Z`
-      : "";
-
-  const grid = [0.25, 0.5, 0.75].map((f) => padT + f * (H - padT - padB));
-
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="none"
-      style={{ width: "100%", height: "100%", display: "block" }}
-    >
-      {grid.map((gy, i) => (
-        <line
-          key={i}
-          x1={padL}
-          x2={W - padR}
-          y1={gy}
-          y2={gy}
-          stroke="var(--color-silver-800)"
-          strokeWidth={1}
-          vectorEffect="non-scaling-stroke"
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={rows} margin={{ top: 12, right: 16, bottom: 4, left: 4 }}>
+        <defs>
+          {series.map((s) => (
+            <linearGradient
+              key={s.key}
+              id={`grad-${s.key}-${s.color.replace("#", "")}`}
+              x1="0"
+              y1="0"
+              x2="0"
+              y2="1"
+            >
+              <stop offset="0%" stopColor={s.color} stopOpacity={0.25} />
+              <stop offset="100%" stopColor={s.color} stopOpacity={0} />
+            </linearGradient>
+          ))}
+        </defs>
+        <CartesianGrid stroke="var(--color-silver-800)" vertical={false} />
+        <XAxis
+          dataKey="t"
+          type="number"
+          scale="time"
+          domain={["dataMin", "dataMax"]}
+          tickFormatter={fmtDay}
+          tick={{ fill: "var(--color-silver-400)", fontSize: 11 }}
+          stroke="var(--color-silver-700)"
+          minTickGap={44}
+          tickMargin={8}
         />
-      ))}
-      {series.map((s, si) =>
-        pts[si].length ? (
-          <g key={s.key}>
-            <path d={toArea(pts[si])} fill={s.color} opacity={0.1} />
-            <path
-              d={toLine(pts[si])}
-              fill="none"
-              stroke={s.color}
-              strokeWidth={2}
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          </g>
-        ) : null
-      )}
-    </svg>
+        <YAxis
+          tickFormatter={compact}
+          tick={{ fill: "var(--color-silver-400)", fontSize: 11 }}
+          stroke="var(--color-silver-700)"
+          width={54}
+          domain={["auto", "auto"]}
+        />
+        <Tooltip
+          cursor={{ stroke: "var(--color-silver-500)", strokeWidth: 1 }}
+          content={<ChartTooltip series={series} format={fmt} />}
+        />
+        {series.map((s) => (
+          <Area
+            key={s.key}
+            type="monotone"
+            dataKey={s.key}
+            name={s.label ?? s.key}
+            stroke={s.color}
+            strokeWidth={2}
+            fill={`url(#grad-${s.key}-${s.color.replace("#", "")})`}
+            dot={false}
+            activeDot={{ r: 3, fill: s.color, stroke: "#0a0a0f", strokeWidth: 1 }}
+            isAnimationActive={false}
+            connectNulls
+          />
+        ))}
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }

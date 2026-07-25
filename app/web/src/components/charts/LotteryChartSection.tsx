@@ -33,7 +33,12 @@ export default function LotteryChartSection() {
           backgroundColor: "var(--color-silver-900)",
         }}
       >
-        <LineChartSvg data={data} isLoading={isLoading} series={[{ key: "v", color: "#f0c674" }]} />
+        <LineChartSvg
+          data={data}
+          isLoading={isLoading}
+          series={[{ key: "v", color: "#f0c674", label: "Round" }]}
+          format={(n) => "#" + Math.round(n).toLocaleString()}
+        />
       </div>
     </section>
   );

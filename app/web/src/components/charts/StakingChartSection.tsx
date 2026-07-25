@@ -33,7 +33,12 @@ export default function StakingChartSection() {
           backgroundColor: "var(--color-silver-900)",
         }}
       >
-        <LineChartSvg data={data} isLoading={isLoading} series={[{ key: "v", color: "#7dd3fc" }]} />
+        <LineChartSvg
+          data={data}
+          isLoading={isLoading}
+          series={[{ key: "v", color: "#7dd3fc", label: "Staked" }]}
+          format={(n) => Math.round(n).toLocaleString() + " SLVR"}
+        />
       </div>
     </section>
   );

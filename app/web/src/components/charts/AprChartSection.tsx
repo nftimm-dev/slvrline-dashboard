@@ -33,7 +33,12 @@ export default function AprChartSection() {
           backgroundColor: "var(--color-silver-900)",
         }}
       >
-        <LineChartSvg data={data} isLoading={isLoading} series={[{ key: "v", color: "#5eead4" }]} />
+        <LineChartSvg
+          data={data}
+          isLoading={isLoading}
+          series={[{ key: "v", color: "#5eead4", label: "APR" }]}
+          format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + "%"}
+        />
       </div>
     </section>
   );
