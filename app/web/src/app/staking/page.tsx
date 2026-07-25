@@ -4,9 +4,12 @@ import PageHeader from "@/components/analytics/PageHeader";
 import StakingView from "@/components/staking/StakingView";
 
 export const metadata: Metadata = {
-  title: "Staking — SLVRline",
+  title: "Staking",
   description:
     "veSLVR staking on Robinhood Chain: total locked, permanent vs time-locked split, lock-size distribution, and top lockers — reconstructed from on-chain state.",
+  alternates: {
+    canonical: "/staking",
+  },
 };
 
 export default function StakingPage() {

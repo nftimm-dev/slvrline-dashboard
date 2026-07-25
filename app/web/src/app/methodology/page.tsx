@@ -5,9 +5,12 @@ import ContractTable from "@/components/methodology/ContractTable";
 import AddressLabel from "@/components/common/AddressLabel";
 
 export const metadata: Metadata = {
-  title: "Methodology — SLVRline",
+  title: "Methodology",
   description:
     "How every number on SLVRline is computed — formulas, data sources, and contract addresses for SLVR protocol analytics.",
+  alternates: {
+    canonical: "/methodology",
+  },
 };
 
 export default function MethodologyPage() {

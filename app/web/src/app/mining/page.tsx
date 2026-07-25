@@ -5,9 +5,12 @@ import LotteryView from "@/components/lottery/LotteryView";
 import UnclaimedMinersSection from "@/components/mining/UnclaimedMinersSection";
 
 export const metadata: Metadata = {
-  title: "Grid Mining — SLVRline",
+  title: "Grid Mining",
   description:
     "Live Grid Mining snapshot on Robinhood Chain: current round, jackpot in ETH, unclaimed rewards pool, cumulative refined, and the miner index.",
+  alternates: {
+    canonical: "/mining",
+  },
 };
 
 export default function MiningPage() {

@@ -4,9 +4,12 @@ import PageHeader from "@/components/analytics/PageHeader";
 import HoldersView from "@/components/holders/HoldersView";
 
 export const metadata: Metadata = {
-  title: "Holders — SLVRline",
+  title: "Holders",
   description:
     "SLVR holder distribution on Robinhood Chain: holder count, top-10 concentration, and ranked balances with protocol-address tagging.",
+  alternates: {
+    canonical: "/holders",
+  },
 };
 
 export default function HoldersPage() {
