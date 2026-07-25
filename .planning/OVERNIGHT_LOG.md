@@ -69,4 +69,29 @@
 - Goldsky subgraph started returning 404 mid-run; cross-checks fell back to dual-RPC agreement (both RPCs matched exactly).
 - Minor mobile text clipping on the Supply card at 375px; APR chart y-scale is dominated by the launch spike.
 - SLVR price is live-volatile (seen $82–$95 across screenshots) — it's a thin market (~$92k liquidity).
+
+---
+
+## Session 2 (2026-07-25 daytime) — fixes + surprise analytics
+
+**Dividends APR** — iterated to correctness with the user:
+- Switched from launch-anchored `min(7d, age)` window (which spiked to ~166K%) to a **trailing-24h rolling** rate → headline ~4,000–5,000% (the sustainable rate; matches the old V1 steady figure). First-24h points nulled so there's no launch spike.
+- **Re-baselined all charts to the 22 Jul V2 migration** (dropped pre-migration V1 history per user request).
+- Verified on-chain that V2's `minerIndex` reset to 0 at migration (the "spike" was a cold-start artifact of annualising a front-loaded burst over a tiny window — not a change in dividends).
+
+**Correctness fixes (user caught these — both real bugs):**
+- **STAKED** was undercounting badly (5,181 shown). Old reconstruction guessed events by byte-length. Rewrote to read on-chain lock state via Multicall3 (enumerate ve NFTs → `locks(tokenId)`). True total = **12,120 SLVR (10,886 permanent + 1,234 time-locked, 933 active locks)**.
+- **EMITTED %/RUNWAY** ignored burned/permanent-locked SLVR. Permanent locks BURN the underlying SLVR (drops from `totalSupply`) but it *was* emitted from the 500K. Now `emitted = totalSupply + cumulativeBurned` = **17,569 (3.51%)**, and runway uses the 500K emission budget ÷ gross emission rate → **~14 months** (was a misleading 74mo on net supply, which is actually shrinking because burns > mints).
+- Found + fixed a silent data bug: the secondary RPC truncates `getLogs` without erroring (~50% undercount). All cumulative sums now pin to the primary RPC + adaptively subdivide.
+
+**UX:** convened a 3-expert design panel and redesigned the vitals strip (one global freshness line, neutral numbers with accent-border identity, equal-height cards). Added faint background **sparklines** behind APR/Supply/Runway.
+
+**Surprise analytics — 4 new pages + shared nav:**
+- **/markets** — all 15 SLVR pools (Dexscreener): $89.7K liquidity, $244K 24h vol, liquidity-by-venue chart, pools table.
+- **/holders** — 1,664 holders, top-10 = 65.9% concentration, ranked table with protocol contracts labeled/tagged.
+- **/staking** — ve deep-dive: total/permanent/time-locked, donut, lock-size distribution, top-lockers table.
+- **/lottery** — live Grid Lottery snapshot (round, jackpot, unclaimed pool, miner index) + a "this is mining" explainer.
+
+**Open item:** runway uses recent gross emission (~14mo). The protocol's canonical Hub `emissionRatePerSec` gives ~16.5mo — arguably more defensible (forward rate). Easy switch if preferred.
+**Perf note:** /api/staking cold-load ~19s (genesis→head log scan for tokenIds), then cached 30min; warmed before handoff. A tokenId cache would make it instant.
 - **23:45** — Phase 1 PLAN.md written (5 plans: schema+config → 11 handlers → full backfill → validation → METHODOLOGY). Plan-checked inline by orchestrator (sound; matches research). **Strategy decision:** Phases 1 & 2 both extend the same Ponder indexer, so I'll build BOTH contract sets first and run ONE full backfill (block 5.57M→head ≈ 12.9M blocks, est. 2–6h) in the background, then build Phase 3–5 code while it syncs, and do final numeric cross-checks once the index completes. This avoids a wasteful double backfill. Kicked off: Phase 1 executor (schema+handlers+METHODOLOGY, smoke-tested only — full backfill deferred) ∥ Phase 2 planner.
