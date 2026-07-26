@@ -5,6 +5,7 @@ import TimeRangeSelector from "./TimeRangeSelector";
 import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
+import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 
 export default function StakingChartSection() {
   const [range, setRange] = useState<RangeKey>("7d");
@@ -25,7 +26,7 @@ export default function StakingChartSection() {
         <TimeRangeSelector value={range} onChange={setRange} />
       </div>
       <div
-        className="overflow-hidden"
+        className="relative overflow-hidden"
         style={{
           height: 256,
           borderRadius: "var(--radius-card)",
@@ -39,6 +40,7 @@ export default function StakingChartSection() {
           series={[{ key: "v", color: "#7dd3fc", label: "Staked" }]}
           format={(n) => Math.round(n).toLocaleString() + " SLVR"}
         />
+        <ScreenshotStamp placement="top" />
       </div>
     </section>
   );
