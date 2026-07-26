@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/analytics/PageHeader";
 import HoldersView from "@/components/holders/HoldersView";
+import { SlvrlineActions } from "@/components/common/SlvrlineActionLink";
 
 export const metadata: Metadata = {
   title: "Holders",
@@ -19,6 +20,7 @@ export default function HoldersPage() {
         <PageHeader
           title="Holders"
           subtitle="Distribution of SLVR across addresses — how concentrated the token is, and which of the largest holders are protocol contracts."
+          aside={<SlvrlineActions actions={["autoStaking", "staking"]} />}
         />
         <HoldersView />
       </PageContainer>

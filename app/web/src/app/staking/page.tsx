@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/analytics/PageHeader";
 import StakingView from "@/components/staking/StakingView";
+import { SlvrlineActions } from "@/components/common/SlvrlineActionLink";
 
 export const metadata: Metadata = {
   title: "Staking",
@@ -19,6 +20,7 @@ export default function StakingPage() {
         <PageHeader
           title="Staking"
           subtitle="veSLVR vote-escrow locks, read directly from on-chain state. Permanent locks burn the underlying SLVR; time-locked positions decay toward unlock."
+          aside={<SlvrlineActions actions={["autoStaking", "staking"]} />}
         />
         <StakingView />
       </PageContainer>

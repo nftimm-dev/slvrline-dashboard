@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/analytics/PageHeader";
 import EarnView from "@/components/earn/EarnView";
+import { SlvrlineActions } from "@/components/common/SlvrlineActionLink";
 
 export const metadata: Metadata = {
   title: "Earn",
@@ -19,6 +20,7 @@ export default function EarnPage() {
         <PageHeader
           title="How can I earn the most?"
           subtitle="Every way to earn on SLVR, ranked by earning potential — with a plain-English how-to for each. Mining dividends pay in SLVR; staking pays in ETH, so each track is ranked on its own terms."
+          aside={<SlvrlineActions actions={["autoStaking", "mining"]} />}
         />
         <EarnView />
       </PageContainer>

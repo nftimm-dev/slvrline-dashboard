@@ -3,6 +3,7 @@ import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/analytics/PageHeader";
 import LotteryView from "@/components/lottery/LotteryView";
 import UnclaimedMinersSection from "@/components/mining/UnclaimedMinersSection";
+import { SlvrlineActions } from "@/components/common/SlvrlineActionLink";
 
 export const metadata: Metadata = {
   title: "Grid Mining",
@@ -20,6 +21,7 @@ export default function MiningPage() {
         <PageHeader
           title="Grid Mining"
           subtitle="The live mining engine for SLVR. A snapshot of the current round, jackpot, and the reward pools that drive dividends."
+          aside={<SlvrlineActions actions={["autoStaking", "mining"]} />}
         />
         <LotteryView />
         <UnclaimedMinersSection />

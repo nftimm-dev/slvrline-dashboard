@@ -4,6 +4,7 @@ import AprChartSection from "@/components/charts/AprChartSection";
 import SupplyChartSection from "@/components/charts/SupplyChartSection";
 import StakingChartSection from "@/components/charts/StakingChartSection";
 import PriceDisplay from "@/components/charts/PriceDisplay";
+import SlvrlineActionRail from "@/components/common/SlvrlineActionRail";
 
 export default function Home() {
   return (
@@ -12,13 +13,7 @@ export default function Home() {
         {/* Vitals strip — hero section */}
         <VitalsStrip />
 
-        {/* Divider */}
-        <div
-          style={{
-            borderTop: "1px solid var(--color-silver-800)",
-            marginBottom: 40,
-          }}
-        />
+        <SlvrlineActionRail />
 
         {/* Historical charts — self-contained Client Components */}
         <AprChartSection />
