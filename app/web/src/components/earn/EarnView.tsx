@@ -4,6 +4,7 @@ import useSWR from "swr";
 import Panel from "@/components/analytics/Panel";
 import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 import StateMessage from "@/components/analytics/StateMessage";
+import EarnShareCard from "@/components/earn/EarnShareCard";
 
 const fetcher = (url: string) =>
   fetch(url).then((r) => {
@@ -263,6 +264,12 @@ export default function EarnView() {
 
   return (
     <>
+      <EarnShareCard
+        dividendsDisplay={dividends?.headline.display ?? "LIVE"}
+        stakingDisplay={stakingByApr[0]?.headline.display ?? "LIVE"}
+        stakingWindowDays={data?.staking.windowDays ?? null}
+      />
+
       {/* Ranked list */}
       <Panel
         title="Ranked by earning potential"
