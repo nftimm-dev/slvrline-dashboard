@@ -10,6 +10,30 @@ export default function SiteFooter() {
     >
       <PageContainer>
         <div className="flex flex-col gap-3">
+          <Link
+            href="/"
+            className="inline-flex w-fit items-center gap-2 no-underline"
+            aria-label="SLVRline Analytics home"
+          >
+            <span
+              className="font-mono font-bold tracking-[0.12em]"
+              style={{ color: "var(--color-accent)", fontSize: "0.75rem" }}
+            >
+              //
+            </span>
+            <span
+              className="font-semibold tracking-[0.1em]"
+              style={{ color: "var(--color-silver-100)", fontSize: "0.75rem" }}
+            >
+              SLVRLINE
+            </span>
+            <span
+              className="font-mono uppercase tracking-[0.1em]"
+              style={{ color: "var(--color-silver-400)", fontSize: "0.625rem" }}
+            >
+              Analytics
+            </span>
+          </Link>
           <p style={{ fontSize: "0.8125rem", color: "var(--color-silver-400)" }}>
             Independent source of truth — computed from indexed Robinhood Chain
             data.

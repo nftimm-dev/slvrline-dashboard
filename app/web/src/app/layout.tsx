@@ -10,6 +10,7 @@ const description =
 export const metadata: Metadata = {
   metadataBase: new URL("https://analytics.slvrline.fun"),
   applicationName: "SLVRline Analytics",
+  manifest: "/manifest.webmanifest",
   title: {
     default: title,
     template: "%s | SLVRline Analytics",
@@ -37,6 +38,18 @@ export const metadata: Metadata = {
   creator: "SLVRline Analytics",
   publisher: "SLVRline Analytics",
   category: "finance",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/apple-icon", sizes: "180x180", type: "image/png" }],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "SLVRline Analytics",
+  },
+  other: {
+    "msapplication-TileColor": "#07090d",
+  },
   alternates: {
     canonical: "/",
   },
@@ -90,6 +103,8 @@ const structuredData = {
   applicationCategory: "FinanceApplication",
   operatingSystem: "Web",
   isAccessibleForFree: true,
+  logo: "https://analytics.slvrline.fun/icon.svg",
+  image: "https://analytics.slvrline.fun/opengraph-image",
   keywords:
     "SLVR analytics, Robinhood Chain, RWA analytics, real-world assets, onchain analytics, DeFi analytics",
 };
