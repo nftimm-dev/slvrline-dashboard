@@ -162,17 +162,25 @@
 
 .earn-share-card__brand {
   align-items: center;
-  color: #eef5fb;
   display: flex;
-  font-size: 2.2cqw;
-  gap: 1cqw;
-  letter-spacing: 0.11em;
+  gap: 1.05cqw;
+}
+
+.earn-share-card__brand img {
+  display: block;
+  height: 5.5cqw;
+  object-fit: contain;
+  width: 11cqw;
 }
 
 .earn-share-card__brand span {
-  color: #7eb8e8;
+  border-left: 1px solid rgba(126, 184, 232, 0.3);
+  color: #8bc7f5;
   font-family: var(--font-mono);
-  font-weight: 800;
+  font-size: 0.95cqw;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding-left: 1.05cqw;
 }
 
 .earn-share-card__live {

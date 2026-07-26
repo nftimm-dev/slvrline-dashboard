@@ -42,35 +42,31 @@ export default function SiteNav() {
       }}
     >
       <PageContainer className="h-12 flex items-center gap-4">
-        {/* Wordmark */}
+        {/* Primary SLVRline identity — shared with slvrline.fun */}
         <Link
           href="/"
-          className="flex items-center gap-1 no-underline flex-shrink-0"
+          className="flex items-center gap-2 no-underline flex-shrink-0"
           style={{ textDecoration: "none" }}
+          aria-label="SLVRline Analytics home"
         >
+          <img
+            src="/slvrline-logo.svg"
+            alt="SLVRline"
+            width={100}
+            height={50}
+            className="h-10 w-20 object-contain sm:w-[100px]"
+          />
           <span
+            className="hidden border-l pl-2 font-mono uppercase sm:inline"
             style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: "var(--color-accent)",
+              borderColor: "var(--color-silver-700)",
+              fontSize: "0.5625rem",
+              letterSpacing: "0.12em",
+              color: "var(--color-silver-400)",
               fontWeight: 600,
             }}
           >
-            //
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "0.75rem",
-              letterSpacing: "0.15em",
-              textTransform: "uppercase",
-              color: "var(--color-silver-100)",
-              fontWeight: 600,
-            }}
-          >
-            SLVRline
+            Analytics
           </span>
         </Link>
 

@@ -105,27 +105,62 @@ export default function OpenGraphImage() {
             }}
           >
             <div style={{ alignItems: "center", display: "flex", gap: 14 }}>
-              <span
-                style={{
-                  color: "#7EB8E8",
-                  display: "flex",
-                  fontFamily: "monospace",
-                  fontSize: 31,
-                  fontWeight: 700,
-                  letterSpacing: "3px",
-                }}
+              <svg
+                width="64"
+                height="64"
+                viewBox="0 0 64 64"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
               >
-                //
-              </span>
-              <span
+                <rect
+                  x="2"
+                  y="2"
+                  width="60"
+                  height="60"
+                  rx="14"
+                  fill="#0A0B0D"
+                  stroke="#3D4654"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M14 14V50M26 14V50M38 14V50M50 14V50M14 14H50M14 26H50M14 38H50M14 50H50"
+                  stroke="#77818F"
+                  strokeOpacity="0.28"
+                  strokeWidth="1.5"
+                />
+                <path
+                  d="M13 46L25 33L35 39L51 16"
+                  stroke="#E8EAED"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <circle cx="51" cy="16" r="5" fill="#00C805" />
+              </svg>
+              <div
                 style={{
+                  alignItems: "baseline",
                   display: "flex",
                   fontSize: 34,
-                  fontWeight: 700,
                   letterSpacing: "1px",
                 }}
               >
-                SLVRline
+                <span style={{ color: "#E8EAED", fontWeight: 700 }}>SLVR</span>
+                <span style={{ color: "#9AA3B0", fontWeight: 500 }}>line</span>
+              </div>
+              <span
+                style={{
+                  borderLeft: "1px solid rgba(126, 184, 232, 0.35)",
+                  color: "#8bc7f5",
+                  display: "flex",
+                  fontFamily: "monospace",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  letterSpacing: "2px",
+                  paddingLeft: 14,
+                }}
+              >
+                ANALYTICS
               </span>
             </div>
             <div

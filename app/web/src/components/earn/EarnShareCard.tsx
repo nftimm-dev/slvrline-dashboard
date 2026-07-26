@@ -115,8 +115,8 @@ export default function EarnShareCard({
         <div className="earn-share-card__content">
           <div className="earn-share-card__topline">
             <div className="earn-share-card__brand">
-              <span>//</span>
-              <strong>SLVRLINE</strong>
+              <img src="/slvrline-logo.svg" alt="" />
+              <span>ANALYTICS</span>
             </div>
             <div className="earn-share-card__live">
               <span aria-hidden />

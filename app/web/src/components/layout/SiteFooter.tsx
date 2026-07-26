@@ -15,21 +15,20 @@ export default function SiteFooter() {
             className="inline-flex w-fit items-center gap-2 no-underline"
             aria-label="SLVRline Analytics home"
           >
+            <img
+              src="/slvrline-logo.svg"
+              alt="SLVRline"
+              width={108}
+              height={54}
+              className="h-[54px] w-[108px] object-contain"
+            />
             <span
-              className="font-mono font-bold tracking-[0.12em]"
-              style={{ color: "var(--color-accent)", fontSize: "0.75rem" }}
-            >
-              //
-            </span>
-            <span
-              className="font-semibold tracking-[0.1em]"
-              style={{ color: "var(--color-silver-100)", fontSize: "0.75rem" }}
-            >
-              SLVRLINE
-            </span>
-            <span
-              className="font-mono uppercase tracking-[0.1em]"
-              style={{ color: "var(--color-silver-400)", fontSize: "0.625rem" }}
+              className="border-l pl-2 font-mono uppercase tracking-[0.1em]"
+              style={{
+                borderColor: "var(--color-silver-700)",
+                color: "var(--color-silver-400)",
+                fontSize: "0.625rem",
+              }}
             >
               Analytics
             </span>
