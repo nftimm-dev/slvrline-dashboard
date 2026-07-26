@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import ScreenshotStamp from "./ScreenshotStamp";
 
 interface StatCardProps {
   label: string;
@@ -37,7 +38,7 @@ export default function StatCard({
         borderLeft: `2px solid var(${colorVar})`,
       }}
     >
-      <div className="relative flex flex-col h-full p-4">
+      <div className="relative flex flex-col h-full p-4 pb-8">
         <span
           className="uppercase whitespace-nowrap overflow-hidden text-ellipsis"
           style={{
@@ -91,6 +92,7 @@ export default function StatCard({
           </span>
         )}
       </div>
+      <ScreenshotStamp />
     </div>
   );
 }

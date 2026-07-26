@@ -5,6 +5,7 @@ import StatCard from "@/components/analytics/StatCard";
 import AddressCell from "@/components/analytics/AddressCell";
 import StateMessage from "@/components/analytics/StateMessage";
 import Panel from "@/components/analytics/Panel";
+import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 import type { LotteryData } from "@/lib/lottery";
 
 const fetcher = (url: string) =>
@@ -115,12 +116,13 @@ export default function LotteryView() {
 
       {/* Explanatory caption */}
       <div
+        className="relative"
         style={{
           borderRadius: "var(--radius-card)",
           border: "1px solid var(--color-silver-800)",
           backgroundColor: "var(--color-silver-900)",
           borderLeft: "2px solid var(--color-lottery)",
-          padding: "16px 18px",
+          padding: "16px 18px 30px",
         }}
       >
         <div
@@ -169,6 +171,7 @@ export default function LotteryView() {
             raw minerIndex: {data.minerIndexRaw}
           </p>
         )}
+        <ScreenshotStamp />
       </div>
     </>
   );

@@ -2,6 +2,7 @@
 
 import { useVitals } from "@/hooks/useVitals";
 import { formatUSD } from "@/lib/format";
+import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 
 export default function PriceDisplay() {
   const { data } = useVitals();
@@ -21,7 +22,7 @@ export default function PriceDisplay() {
         </h2>
       </div>
       <div
-        className="p-4 border"
+        className="relative p-4 pb-8 border"
         style={{
           borderRadius: "var(--radius-card)",
           borderColor: "var(--color-silver-800)",
@@ -97,6 +98,7 @@ export default function PriceDisplay() {
             Price sourced from SLVR/WETH liquidity pool on Robinhood Chain.
           </p>
         </div>
+        <ScreenshotStamp />
       </div>
     </section>
   );

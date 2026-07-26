@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import ScreenshotStamp from "./ScreenshotStamp";
 
 interface PanelProps {
   title?: string;
@@ -50,15 +51,16 @@ export default function Panel({
         </div>
       )}
       <div
-        className="overflow-hidden"
+        className="relative overflow-hidden"
         style={{
           borderRadius: "var(--radius-card)",
           border: "1px solid var(--color-silver-800)",
           backgroundColor: "var(--color-silver-900)",
-          padding: flush ? 0 : 16,
+          padding: flush ? "0 0 24px" : "16px 16px 28px",
         }}
       >
         {children}
+        <ScreenshotStamp />
       </div>
     </section>
   );

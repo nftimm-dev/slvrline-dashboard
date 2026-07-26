@@ -4,6 +4,7 @@ import { useState, ReactNode } from "react";
 import TimeRangeSelector from "./TimeRangeSelector";
 import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey, MetricName, HistoryResponse } from "@/hooks/useHistory";
+import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 
 interface ChartSectionProps {
   title: string;
@@ -40,7 +41,7 @@ export default function ChartSection({
         <TimeRangeSelector value={range} onChange={setRange} />
       </div>
       <div
-        className="overflow-hidden"
+        className="relative overflow-hidden"
         style={{
           height: 256,
           borderRadius: "var(--radius-card)",
@@ -49,6 +50,7 @@ export default function ChartSection({
         }}
       >
         {children(range, data, isLoading)}
+        <ScreenshotStamp placement="top" />
       </div>
     </section>
   );

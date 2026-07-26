@@ -1,6 +1,7 @@
 "use client";
 
 import Sparkline from "./Sparkline";
+import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 
 interface VitalCardProps {
   label: string;
@@ -39,7 +40,7 @@ export default function VitalCard({
       {sparkline && <Sparkline data={sparkline} colorVar={colorVar} />}
 
       {/* Content layer */}
-      <div className="relative flex flex-col h-full p-4" style={{ zIndex: 1 }}>
+      <div className="relative flex flex-col h-full p-4 pb-8" style={{ zIndex: 1 }}>
         {/* Label — its own line, quiet */}
         <span
           className="uppercase whitespace-nowrap overflow-hidden text-ellipsis"
@@ -97,6 +98,7 @@ export default function VitalCard({
           </span>
         )}
       </div>
+      <ScreenshotStamp />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import TimeRangeSelector from "./TimeRangeSelector";
 import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
+import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 
 export default function AprChartSection() {
   const [range, setRange] = useState<RangeKey>("all");
@@ -28,7 +29,7 @@ export default function AprChartSection() {
         <TimeRangeSelector value={range} onChange={setRange} />
       </div>
       <div
-        className="overflow-hidden"
+        className="relative overflow-hidden"
         style={{
           height: 256,
           borderRadius: "var(--radius-card)",
@@ -42,6 +43,7 @@ export default function AprChartSection() {
           series={[{ key: "v", color: "#5eead4", label: "APR" }]}
           format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + "%"}
         />
+        <ScreenshotStamp placement="top" />
       </div>
     </section>
   );

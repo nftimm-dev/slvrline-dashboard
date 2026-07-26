@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import Panel from "@/components/analytics/Panel";
+import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 import StateMessage from "@/components/analytics/StateMessage";
 
 const fetcher = (url: string) =>
@@ -299,12 +300,13 @@ export default function EarnView() {
       {/* Two-track explainer */}
       <div className="grid gap-6 lg:grid-cols-2 mb-8">
         <div
+          className="relative"
           style={{
             borderRadius: "var(--radius-card)",
             border: "1px solid var(--color-silver-800)",
             backgroundColor: "var(--color-silver-900)",
             borderLeft: "2px solid var(--color-apr)",
-            padding: "16px 18px",
+            padding: "16px 18px 30px",
           }}
         >
           <div
@@ -348,15 +350,17 @@ export default function EarnView() {
               </>
             )}
           </p>
+          <ScreenshotStamp />
         </div>
 
         <div
+          className="relative"
           style={{
             borderRadius: "var(--radius-card)",
             border: "1px solid var(--color-silver-800)",
             backgroundColor: "var(--color-silver-900)",
             borderLeft: "2px solid var(--color-price)",
-            padding: "16px 18px",
+            padding: "16px 18px 30px",
           }}
         >
           <div
@@ -416,6 +420,7 @@ export default function EarnView() {
               See staking →
             </a>
           </p>
+          <ScreenshotStamp />
         </div>
       </div>
 
