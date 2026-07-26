@@ -11,7 +11,7 @@ export default function ScreenshotStamp({
   return (
     <span
       aria-hidden="true"
-      className={`pointer-events-none select-none absolute right-3 z-10 font-mono leading-none ${
+      className={`pointer-events-none select-none absolute right-3 z-10 inline-flex items-center gap-1 font-mono leading-none ${
         placement === "top" ? "top-2.5" : "bottom-2.5"
       } ${className}`}
       style={{
@@ -27,7 +27,14 @@ export default function ScreenshotStamp({
         padding: "3px 5px",
       }}
     >
-      slvrline.fun
+      <img
+        src="/icon.svg"
+        alt=""
+        width={10}
+        height={10}
+        style={{ display: "block", height: 10, width: 10 }}
+      />
+      <span>slvrline.fun</span>
     </span>
   );
 }
