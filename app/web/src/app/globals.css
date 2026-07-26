@@ -61,6 +61,10 @@
   animation: mining-portal-pulse 2.8s ease-in-out infinite;
 }
 
+.auto-staking-portal-link {
+  animation: auto-staking-portal-pulse 3.2s ease-in-out infinite;
+}
+
 @keyframes mining-portal-pulse {
   0%,
   100% {
@@ -72,8 +76,20 @@
   }
 }
 
+@keyframes auto-staking-portal-pulse {
+  0%,
+  100% {
+    filter: brightness(0.96);
+  }
+
+  50% {
+    filter: brightness(1.12);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .mining-portal-link {
+  .mining-portal-link,
+  .auto-staking-portal-link {
     animation: none;
   }
 }

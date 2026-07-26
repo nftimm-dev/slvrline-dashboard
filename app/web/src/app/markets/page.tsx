@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import PageContainer from "@/components/layout/PageContainer";
 import PageHeader from "@/components/analytics/PageHeader";
 import MarketsView from "@/components/markets/MarketsView";
+import { SlvrlineActions } from "@/components/common/SlvrlineActionLink";
 
 export const metadata: Metadata = {
   title: "Markets",
@@ -19,6 +20,7 @@ export default function MarketsPage() {
         <PageHeader
           title="Markets"
           subtitle="SLVR liquidity and trading volume across every indexed pool on Robinhood Chain."
+          aside={<SlvrlineActions actions={["swapBridge", "mining"]} />}
         />
         <MarketsView />
       </PageContainer>

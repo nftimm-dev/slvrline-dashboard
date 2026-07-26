@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import PageContainer from "./layout/PageContainer";
 import StatusDot from "@/components/vitals/StatusDot";
+import { SlvrlineActionLink } from "@/components/common/SlvrlineActionLink";
 
 interface NavLink {
   href: string;
@@ -121,20 +122,15 @@ export default function SiteNav() {
             Blockscout
           </a>
 
-          <a
-            href="https://slvrline.fun"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mining-portal-link inline-flex items-center gap-1.5 whitespace-nowrap rounded-md border border-[#7eb8e899] bg-[#7eb8e81a] px-2.5 py-[5px] text-[0.8125rem] font-semibold text-silver-100 no-underline shadow-[0_0_18px_rgba(126,184,232,0.2)] transition hover:-translate-y-px hover:border-[#b4deffeb] hover:text-white hover:shadow-[0_0_26px_rgba(126,184,232,0.38)]"
-            aria-label="Open the SLVR mining app in a new tab"
-          >
-            <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#b9e2ff] shadow-[0_0_10px_rgba(185,226,255,0.95)]"
-              aria-hidden
-            />
-            <span>Mine SLVR</span>
-            <span aria-hidden>↗</span>
-          </a>
+          <SlvrlineActionLink
+            action="autoStaking"
+            label="Auto-Stake"
+            className="whitespace-nowrap"
+          />
+          <SlvrlineActionLink
+            action="mining"
+            className="whitespace-nowrap"
+          />
 
           <span className="pl-1 pr-1 flex items-center flex-shrink-0">
             <StatusDot />
