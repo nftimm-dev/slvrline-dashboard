@@ -106,47 +106,44 @@ export default function OpenGraphImage() {
           >
             <div style={{ alignItems: "center", display: "flex", gap: 14 }}>
               <svg
-                width="64"
-                height="64"
-                viewBox="0 0 64 64"
+                width="76"
+                height="62"
+                viewBox="0 0 76 62"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
               >
-                <rect
-                  x="2"
-                  y="2"
-                  width="60"
-                  height="60"
-                  rx="14"
-                  fill="#0A0B0D"
-                  stroke="#3D4654"
-                  strokeWidth="2"
+                <path
+                  d="M10 10V52H66"
+                  stroke="#00F783"
+                  strokeWidth="8"
+                  strokeLinecap="square"
+                  strokeLinejoin="miter"
                 />
                 <path
-                  d="M14 14V50M26 14V50M38 14V50M50 14V50M14 14H50M14 26H50M14 38H50M14 50H50"
-                  stroke="#77818F"
-                  strokeOpacity="0.28"
-                  strokeWidth="1.5"
-                />
-                <path
-                  d="M13 46L25 33L35 39L51 16"
-                  stroke="#E8EAED"
-                  strokeWidth="4"
+                  d="M20 43L34 27L45 36L64 13"
+                  stroke="#00F783"
+                  strokeWidth="6"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                <circle cx="51" cy="16" r="5" fill="#00C805" />
+                <path
+                  d="M53 13H64V24"
+                  stroke="#00F783"
+                  strokeWidth="6"
+                  strokeLinecap="square"
+                  strokeLinejoin="miter"
+                />
               </svg>
               <div
                 style={{
                   alignItems: "baseline",
                   display: "flex",
-                  fontSize: 34,
-                  letterSpacing: "1px",
+                  fontSize: 40,
+                  letterSpacing: "-2px",
                 }}
               >
-                <span style={{ color: "#E8EAED", fontWeight: 700 }}>SLVR</span>
-                <span style={{ color: "#9AA3B0", fontWeight: 500 }}>line</span>
+                <span style={{ color: "#B8B8B8", fontWeight: 900 }}>SLVR</span>
+                <span style={{ color: "#00F783", fontWeight: 800 }}>line</span>
               </div>
               <span
                 style={{

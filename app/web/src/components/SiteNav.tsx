@@ -50,11 +50,11 @@ export default function SiteNav() {
           aria-label="SLVRline Analytics home"
         >
           <img
-            src="/slvrline-logo.svg"
+            src="/slvrline-logo.png"
             alt="SLVRline"
-            width={100}
-            height={50}
-            className="h-10 w-20 object-contain sm:w-[100px]"
+            width={720}
+            height={116}
+            className="h-[24px] w-[150px] object-contain"
           />
           <span
             className="hidden border-l pl-2 font-mono uppercase sm:inline"
