@@ -116,7 +116,7 @@ const structuredData = {
   applicationCategory: "FinanceApplication",
   operatingSystem: "Web",
   isAccessibleForFree: true,
-  logo: "https://analytics.slvrline.fun/icon.svg",
+  logo: "https://analytics.slvrline.fun/slvrline-logo.png",
   image: "https://analytics.slvrline.fun/opengraph-image",
   keywords:
     "SLVR analytics, Robinhood Chain, RWA analytics, real-world assets, onchain analytics, DeFi analytics",

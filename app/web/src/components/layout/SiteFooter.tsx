@@ -16,11 +16,11 @@ export default function SiteFooter() {
             aria-label="SLVRline Analytics home"
           >
             <img
-              src="/slvrline-logo.svg"
+              src="/slvrline-logo.png"
               alt="SLVRline"
-              width={108}
-              height={54}
-              className="h-[54px] w-[108px] object-contain"
+              width={720}
+              height={116}
+              className="h-[32px] w-[198px] object-contain"
             />
             <span
               className="border-l pl-2 font-mono uppercase tracking-[0.1em]"

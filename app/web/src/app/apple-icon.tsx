@@ -34,30 +34,30 @@ export default function AppleIcon() {
             height="164"
             rx="40"
             fill="#0A0B0D"
-            stroke="#3D4654"
+            stroke="#00F783"
+            strokeOpacity="0.34"
             strokeWidth="5"
           />
           <path
-            d="M40 40V140M73 40V140M106 40V140M140 40V140M40 40H140M40 73H140M40 106H140M40 140H140"
-            stroke="#77818F"
-            strokeOpacity="0.28"
-            strokeWidth="4"
+            d="M40 42V138H140"
+            stroke="#00F783"
+            strokeWidth="14"
+            strokeLinecap="square"
+            strokeLinejoin="miter"
           />
           <path
-            d="M37 129L70 93L98 110L141 47"
-            stroke="#E8EAED"
-            strokeWidth="11"
+            d="M54 118L82 84L103 101L138 58"
+            stroke="#00F783"
+            strokeWidth="13"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-          <circle cx="141" cy="47" r="14" fill="#00C805" />
-          <circle
-            cx="141"
-            cy="47"
-            r="23"
-            stroke="#00C805"
-            strokeOpacity="0.28"
-            strokeWidth="5"
+          <path
+            d="M119 58H138V77"
+            stroke="#00F783"
+            strokeWidth="13"
+            strokeLinecap="square"
+            strokeLinejoin="miter"
           />
         </svg>
       </div>

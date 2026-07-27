@@ -1,7 +1,7 @@
-<svg width="180" height="90" viewBox="0 0 180 90" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect x="2" y="15" width="60" height="60" rx="14" fill="#0A0B0D" stroke="#3D4654" stroke-width="2"/>
-  <path d="M14 27V63M26 27V63M38 27V63M50 27V63M14 27H50M14 39H50M14 51H50M14 63H50" stroke="#77818F" stroke-opacity="0.28" stroke-width="1.5"/>
-  <path d="M13 59L25 46L35 52L51 29" stroke="#E8EAED" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="51" cy="29" r="5" fill="#00C805"/>
-  <text x="74" y="53" font-family="Inter,Arial,sans-serif" font-size="24" letter-spacing="0.4"><tspan fill="#E8EAED" font-weight="600">SLVR</tspan><tspan dx="2" fill="#9AA3B0" font-weight="500">line</tspan></text>
+<svg width="720" height="116" viewBox="0 0 720 116" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M8 12V104H114" stroke="#00F783" stroke-width="16" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="M28 83L56 52L76 69L110 24" stroke="#00F783" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M91 24H110V43" stroke="#00F783" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter"/>
+  <text x="150" y="91" font-family="Inter, Arial, Helvetica, sans-serif" font-size="94" font-weight="900" letter-spacing="-3" fill="#B8B8B8">SLVR</text>
+  <text x="458" y="91" font-family="Inter, Arial, Helvetica, sans-serif" font-size="94" font-weight="800" letter-spacing="-3" fill="#00F783">line</text>
 </svg>
