@@ -109,18 +109,21 @@ export interface LpStakingApyResult {
  * Compute the current LP-staking APR. Returns null if the mechanism looks
  * inactive (no staked value or no pool price) — e.g. before the pool exists.
  */
-export async function computeLpStakingApy(): Promise<LpStakingApyResult | null> {
-  const [slot0, poolLiqRaw, stakedLiqRaw, head] = await Promise.all([
-    client.readContract({ address: STATE_VIEW, abi: SV_ABI, functionName: "getSlot0", args: [POOL_ID] }),
-    client.readContract({ address: STATE_VIEW, abi: SV_ABI, functionName: "getLiquidity", args: [POOL_ID] }),
-    client.readContract({ address: LP_REWARDS, abi: LPR_ABI, functionName: "totalStakedLiquidity" }),
-    client.getBlockNumber(),
+export async function computeLpStakingApy(atBlock?: bigint): Promise<LpStakingApyResult | null> {
+  const head = atBlock ?? (await client.getBlockNumber());
+  if (head < POOL_CREATION_BLOCK) return null; // pool did not exist yet
+  const at = { blockNumber: head } as const;
+
+  const [slot0, poolLiqRaw, stakedLiqRaw] = await Promise.all([
+    client.readContract({ address: STATE_VIEW, abi: SV_ABI, functionName: "getSlot0", args: [POOL_ID], ...at }),
+    client.readContract({ address: STATE_VIEW, abi: SV_ABI, functionName: "getLiquidity", args: [POOL_ID], ...at }),
+    client.readContract({ address: LP_REWARDS, abi: LPR_ABI, functionName: "totalStakedLiquidity", ...at }),
   ]);
   const sp = Number(slot0[0]);
   const slvrPerEth = (sp / Q96) ** 2;
   if (!(slvrPerEth > 0)) return null;
 
-  // Enumerate NFTs ever sent to lpRewards, keep those it still owns, value each.
+  // Enumerate NFTs sent to lpRewards up to `head`, keep those it owned AT `head`, value each.
   const xfers = await safeLogs({ address: POSITION_MANAGER, event: ERC721_XFER, args: { to: LP_REWARDS }, from: POOL_CREATION_BLOCK, to: head });
   const ids = [...new Set(xfers.map((l) => l.args.tokenId as bigint))];
   let stakedEth = 0;
@@ -129,15 +132,15 @@ export async function computeLpStakingApy(): Promise<LpStakingApyResult | null> 
   for (const id of ids) {
     let owner: string;
     try {
-      owner = (await client.readContract({ address: POSITION_MANAGER, abi: PM_ABI, functionName: "ownerOf", args: [id] })) as string;
+      owner = (await client.readContract({ address: POSITION_MANAGER, abi: PM_ABI, functionName: "ownerOf", args: [id], ...at })) as string;
     } catch {
-      continue;
+      continue; // not minted yet / burned at this block
     }
     if (owner.toLowerCase() !== LP_REWARDS.toLowerCase()) continue;
     count++;
     const [L, info] = await Promise.all([
-      client.readContract({ address: POSITION_MANAGER, abi: PM_ABI, functionName: "getPositionLiquidity", args: [id] }),
-      client.readContract({ address: POSITION_MANAGER, abi: PM_ABI, functionName: "positionInfo", args: [id] }),
+      client.readContract({ address: POSITION_MANAGER, abi: PM_ABI, functionName: "getPositionLiquidity", args: [id], ...at }),
+      client.readContract({ address: POSITION_MANAGER, abi: PM_ABI, functionName: "positionInfo", args: [id], ...at }),
     ]);
     const tickLower = Number(BigInt.asIntN(24, ((info as bigint) >> 8n) & 0xffffffn));
     const tickUpper = Number(BigInt.asIntN(24, ((info as bigint) >> 32n) & 0xffffffn));
@@ -148,12 +151,15 @@ export async function computeLpStakingApy(): Promise<LpStakingApyResult | null> 
   const stakedValueEth = stakedEth + stakedSlvr / slvrPerEth;
   if (!(stakedValueEth > 0)) return null;
 
-  // Trailing-24h SLVR routed hook -> lpRewards = the reward stream.
-  const from = head > BLOCKS_PER_DAY ? head - BLOCKS_PER_DAY : 0n;
+  // Trailing-24h SLVR routed hook -> lpRewards. Clamp the window to the pool's
+  // life and annualize by the ACTUAL window duration, so young/early samples
+  // (window shorter than 24h) aren't understated.
+  const from = head - BLOCKS_PER_DAY > POOL_CREATION_BLOCK ? head - BLOCKS_PER_DAY : POOL_CREATION_BLOCK;
   const inflows = await safeLogs({ address: SLVR, event: ERC20_XFER, args: { from: HOOK, to: LP_REWARDS }, from, to: head });
   let rewardWei = 0n;
   for (const l of inflows) rewardWei += l.args.value as bigint;
-  const rewardSlvrPerDay = Number(rewardWei) / 1e18;
+  const windowDays = Math.max(Number(head - from) / Number(BLOCKS_PER_DAY), 1 / 24); // >= ~1h floor
+  const rewardSlvrPerDay = Number(rewardWei) / 1e18 / windowDays;
 
   const annualEth = (rewardSlvrPerDay * 365) / slvrPerEth;
   const aprPercent = (annualEth / stakedValueEth) * 100;
