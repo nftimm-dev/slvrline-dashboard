@@ -1,6 +1,7 @@
 import PageContainer from "@/components/layout/PageContainer";
 import VitalsStrip from "@/components/vitals/VitalsStrip";
 import AprChartSection from "@/components/charts/AprChartSection";
+import StakingApyChartSection from "@/components/charts/StakingApyChartSection";
 import SupplyChartSection from "@/components/charts/SupplyChartSection";
 import StakingChartSection from "@/components/charts/StakingChartSection";
 import PriceDisplay from "@/components/charts/PriceDisplay";
@@ -17,6 +18,7 @@ export default function Home() {
 
         {/* Historical charts — self-contained Client Components */}
         <AprChartSection />
+        <StakingApyChartSection />
         <SupplyChartSection />
         <StakingChartSection />
         <PriceDisplay />

@@ -13,6 +13,7 @@ import { getDb } from "@/lib/db";
 
 const KNOWN_METRICS = [
   "dividends_apr",
+  "staking_apr",
   "circulating_supply",
   "runway_months",
   "total_staked_slvr",

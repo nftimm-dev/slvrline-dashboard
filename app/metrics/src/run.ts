@@ -22,6 +22,7 @@ import { computeDividendsApr } from "./formulas/apr";
 import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
 import { computeStaking, type VeLock } from "./formulas/staking";
+import { computeStakingApy } from "./formulas/stakingApy";
 import { computeLotteryRoundState } from "./formulas/lottery";
 import { getHead } from "./block-resolver";
 import { SLVR_CAP } from "./constants";
@@ -118,6 +119,40 @@ export async function computeAndWrite(): Promise<void> {
     );
   } catch (e) {
     console.error("[metrics][APR] Error:", e);
+  }
+
+  // ---- staking_apr (veSLVR staking APY — ETH rewards yield) ----
+  try {
+    const apy = await computeStakingApy(headBlock);
+    if (apy) {
+      await writeSnapshot({
+        metricName: "staking_apr",
+        value: apy.permanentAprPercent, // headline: permanent-lock APY
+        value2: apy.baseAprPercent, // 1× (no-lock) base rate
+        value3: apy.totalWeight,
+        metadata: {
+          by_lock: apy.byLock,
+          window_days: apy.windowDays,
+          slvr_per_eth: apy.slvrPerEth,
+          delta_rpw: apy.deltaRpw,
+          permanent_multiplier: apy.permanentMultiplier,
+          block: apy.block.toString(),
+          reward_token: "ETH",
+          method: "trailing_24h_pool_priced",
+          source: "archival_eth_call",
+        },
+        snapshotAt: now,
+        blockNumber: headBlock,
+      });
+      console.log(
+        `[metrics] staking_apr: permanent ${apy.permanentAprPercent.toFixed(1)}% ` +
+        `(base ${apy.baseAprPercent.toFixed(1)}%, ${apy.windowDays}d window)`
+      );
+    } else {
+      console.log("[metrics] staking_apr: NULL (no distributions / no pool price in window)");
+    }
+  } catch (e) {
+    console.error("[metrics][staking_apr] Error:", e);
   }
 
   // ---- 2. circulating_supply + 7. total_supply ----

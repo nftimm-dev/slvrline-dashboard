@@ -39,6 +39,7 @@ import { writeSnapshot } from "./snapshot";
 import { computeHistoricalAprForBlock } from "./formulas/apr";
 import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
+import { computeStakingApy } from "./formulas/stakingApy";
 import { archivalCall, archivalGetBlock, decodeUint256, getLogsAdaptive, TRANSFER_TOPIC0, ZERO_TOPIC } from "./rpc";
 import { getHead, generateSampleBlocks } from "./block-resolver";
 import { aggregate3, type Call3 } from "./multicall";
@@ -469,11 +470,74 @@ async function stakingOnlyBackfill(
   console.log(`[backfill][staking-only] Done. Wrote ${processed}/${samples.length} slots.`);
 }
 
+// ---------------------------------------------------------------------------
+// Staking-APY backfill: reconstruct the staking_apr series (veSLVR ETH-reward
+// yield) at each sample block from rewardPerWeightStored Δ + the SLVR/WETH pool
+// price AT that block — all archival, so it matches the live cron exactly.
+// ---------------------------------------------------------------------------
+async function stakingApyBackfill(
+  samples: Array<{ block: bigint; timestamp: bigint }>
+): Promise<void> {
+  console.log("[backfill][staking-apy] Rebuilding staking_apr series (rpw Δ + pool price AT block)");
+  await sql`DELETE FROM metrics.metric_snapshots WHERE metric_name = 'staking_apr'`;
+  console.log("[backfill][staking-apy] Cleared existing staking_apr rows");
+
+  let processed = 0;
+  let skipped = 0;
+  const t0 = Date.now();
+  for (let i = 0; i < samples.length; i++) {
+    const { block, timestamp } = samples[i];
+    const snapshotAt = new Date(Number(timestamp) * 1000);
+    try {
+      const apy = await computeStakingApy(block);
+      if (!apy) {
+        skipped++;
+        continue; // early samples: no distributions / no pool liquidity yet
+      }
+      await writeSnapshot({
+        metricName: "staking_apr",
+        value: apy.permanentAprPercent,
+        value2: apy.baseAprPercent,
+        value3: apy.totalWeight,
+        metadata: {
+          by_lock: apy.byLock,
+          window_days: apy.windowDays,
+          slvr_per_eth: apy.slvrPerEth,
+          delta_rpw: apy.deltaRpw,
+          permanent_multiplier: apy.permanentMultiplier,
+          block: block.toString(),
+          reward_token: "ETH",
+          method: "trailing_24h_pool_priced",
+          source: "archival_backfill_staking_apy",
+        },
+        snapshotAt,
+        blockNumber: block,
+        backfill: true,
+      });
+      processed++;
+      console.log(
+        `[backfill][staking-apy] ${i + 1}/${samples.length} block=${block} ` +
+        `permanent=${apy.permanentAprPercent.toFixed(0)}% (${apy.windowDays}d)`
+      );
+    } catch (e) {
+      console.error(`[backfill][staking-apy] block=${block} Error:`, String(e));
+    }
+    if ((i + 1) % 5 === 0) {
+      const elapsed = (Date.now() - t0) / 1000;
+      const rate = processed / Math.max(elapsed, 0.001);
+      const eta = rate > 0 ? (samples.length - i - 1) / rate : 0;
+      console.log(`[backfill][staking-apy] ${i + 1}/${samples.length} | elapsed ${elapsed.toFixed(0)}s | ETA ${eta.toFixed(0)}s`);
+    }
+  }
+  console.log(`[backfill][staking-apy] Done. Wrote ${processed}, skipped ${skipped} (no rate yet).`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const aprOnly = args.includes("--apr-only");
   const stakingOnly = args.includes("--staking-only");
+  const stakingApy = args.includes("--staking-apy");
 
   if (dryRun) {
     console.log("[backfill] DRY RUN — will compute sample blocks but not write to DB");
@@ -512,6 +576,21 @@ async function main() {
     `;
     console.log("\n[backfill][staking-only] total_staked_slvr series:");
     for (const r of staked) console.log(`  ${r.t}  ${r.staked}`);
+    await sql.end();
+    return;
+  }
+
+  // Staking-APY mode: rebuild the staking_apr series per sample block.
+  if (stakingApy) {
+    await stakingApyBackfill(samples);
+    const rows = await sql<Array<{ t: string; perm: string }>>`
+      SELECT to_char(snapshot_at,'MM-DD HH24:MI') AS t, round(value::numeric, 0)::text AS perm
+      FROM metrics.metric_snapshots
+      WHERE metric_name = 'staking_apr' AND value IS NOT NULL
+      ORDER BY snapshot_at ASC
+    `;
+    console.log("\n[backfill][staking-apy] staking_apr (permanent) series:");
+    for (const r of rows) console.log(`  ${r.t}  ${r.perm}%`);
     await sql.end();
     return;
   }
