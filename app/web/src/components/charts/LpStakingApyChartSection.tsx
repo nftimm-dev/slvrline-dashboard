@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import TimeRangeSelector from "./TimeRangeSelector";
 import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
@@ -25,6 +25,18 @@ export default function LpStakingApyChartSection({
 } = {}) {
   const [range, setRange] = useState<RangeKey>("all");
   const { data, isLoading } = useHistory("lp_staking_apr", range);
+
+  // Skip non-positive points (e.g. a cohort with no positions yet → APR 0) so the
+  // line doesn't dip to zero before that range type existed.
+  const chartData = useMemo(() => {
+    if (!data?.rows) return data;
+    return {
+      ...data,
+      rows: data.rows.map((r) =>
+        r[dataKey] != null && (r[dataKey] as number) <= 0 ? { ...r, [dataKey]: null } : r
+      ),
+    };
+  }, [data, dataKey]);
 
   return (
     <section className="mb-10">
@@ -53,7 +65,7 @@ export default function LpStakingApyChartSection({
         }}
       >
         <LineChartSvg
-          data={data}
+          data={chartData}
           isLoading={isLoading}
           series={[{ key: dataKey, color, label: title }]}
           format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + "%"}
