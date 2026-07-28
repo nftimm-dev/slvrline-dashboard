@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import TimeRangeSelector from "./TimeRangeSelector";
 import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
@@ -15,6 +15,18 @@ import type { RangeKey } from "@/hooks/useHistory";
 export default function StakingApyChartSection() {
   const [range, setRange] = useState<RangeKey>("all");
   const { data, isLoading } = useHistory("staking_apr", range);
+
+  // Defensive: null out any implausible price point so a single bad on-chain read
+  // can never blow out the right axis (SLVR lives well within [$0.01, $5000]).
+  const chartData = useMemo(() => {
+    if (!data?.rows) return data;
+    return {
+      ...data,
+      rows: data.rows.map((r) =>
+        r.v3 != null && (r.v3 < 0.01 || r.v3 > 5000) ? { ...r, v3: null } : r
+      ),
+    };
+  }, [data]);
 
   return (
     <section className="mb-10">
@@ -57,7 +69,7 @@ export default function StakingApyChartSection() {
         }}
       >
         <LineChartSvg
-          data={data}
+          data={chartData}
           isLoading={isLoading}
           series={[
             { key: "v", color: "#a78bfa", label: "Permanent APY" },

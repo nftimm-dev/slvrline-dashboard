@@ -129,8 +129,12 @@ export async function computeAndWrite(): Promise<void> {
       // SLVR price (USD) from the same on-chain pool ratio × live ETH/USD — stored
       // in value3 so the Staking APY chart can overlay it on a second axis.
       const ethUsd = await fetchEthUsdNow();
-      const slvrPriceUsd =
+      const rawPrice =
         apy.slvrPerEth > 0 && ethUsd > 0 ? (1 / apy.slvrPerEth) * ethUsd : null;
+      // Reject implausible prices (transient bad pool/ETH read) so the overlay
+      // never spikes — SLVR lives well within [$0.01, $5000].
+      const slvrPriceUsd =
+        rawPrice !== null && rawPrice >= 0.01 && rawPrice <= 5000 ? rawPrice : null;
       await writeSnapshot({
         metricName: "staking_apr",
         value: apy.permanentAprPercent, // headline: permanent-lock APY
