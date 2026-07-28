@@ -28,10 +28,24 @@ export default function StakingApyChartSection() {
         >
           Staking APY{" "}
           <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--color-silver-400)" }}>
-            · permanent lock · 24h rolling · ETH rewards
+            · permanent lock · 24h rolling · vs SLVR price
           </span>
         </h2>
         <TimeRangeSelector value={range} onChange={setRange} />
+      </div>
+      {/* Legend — APY (left axis) vs SLVR price (right axis) */}
+      <div
+        className="flex items-center gap-4 mb-3"
+        style={{ fontSize: "0.75rem", color: "var(--color-silver-400)" }}
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <span style={{ width: 12, height: 3, borderRadius: 2, background: "#a78bfa", display: "inline-block" }} />
+          Permanent APY
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span style={{ width: 12, height: 3, borderRadius: 2, background: "#fbbf24", display: "inline-block" }} />
+          SLVR price (USD)
+        </span>
       </div>
       <div
         className="overflow-hidden"
@@ -45,8 +59,12 @@ export default function StakingApyChartSection() {
         <LineChartSvg
           data={data}
           isLoading={isLoading}
-          series={[{ key: "v", color: "#a78bfa", label: "Permanent APY" }]}
+          series={[
+            { key: "v", color: "#a78bfa", label: "Permanent APY" },
+            { key: "v3", color: "#fbbf24", label: "SLVR price", axis: "right" },
+          ]}
           format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + "%"}
+          rightFormat={(n) => "$" + (n >= 100 ? n.toFixed(0) : n.toFixed(2))}
         />
       </div>
     </section>

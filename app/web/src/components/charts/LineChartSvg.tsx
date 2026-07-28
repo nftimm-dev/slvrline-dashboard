@@ -15,6 +15,8 @@ export interface ChartSeries {
   key: "v" | "v2" | "v3";
   color: string;
   label?: string;
+  /** Which Y axis to bind to. Default "left"; "right" enables a secondary axis. */
+  axis?: "left" | "right";
 }
 
 interface Props {
@@ -22,6 +24,8 @@ interface Props {
   isLoading: boolean;
   series: ChartSeries[];
   format?: (n: number) => string;
+  /** Formatter for the right (secondary) axis + its series in the tooltip. */
+  rightFormat?: (n: number) => string;
   /** Log-scale Y axis — makes values spanning orders of magnitude legible (drops non-positive points). */
   logScale?: boolean;
 }
@@ -56,8 +60,9 @@ function ChartTooltip(props: {
   payload?: TipPayloadItem[];
   series: ChartSeries[];
   format: (n: number) => string;
+  rightFormat?: (n: number) => string;
 }) {
-  const { active, label, payload, series, format } = props;
+  const { active, label, payload, series, format, rightFormat } = props;
   if (!active || !payload || payload.length === 0) return null;
   return (
     <div
@@ -99,7 +104,7 @@ function ChartTooltip(props: {
             />
             <span style={{ color: "var(--color-silver-400)" }}>{s?.label ?? p.dataKey}</span>
             <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
-              {format(p.value)}
+              {(s?.axis === "right" ? rightFormat ?? format : format)(p.value)}
             </span>
           </div>
         );
@@ -113,9 +118,11 @@ function ChartTooltip(props: {
  * unlike the canvas libs (echarts/lightweight-charts) whose dynamic imports
  * silently failed to mount in this Next 15 build. Hover for crosshair + tooltip.
  */
-export default function LineChartSvg({ data, isLoading, series, format, logScale }: Props) {
+export default function LineChartSvg({ data, isLoading, series, format, rightFormat, logScale }: Props) {
   const fmt =
     format ?? ((n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 }));
+  const rightFmt = rightFormat ?? fmt;
+  const hasRight = series.some((s) => s.axis === "right");
 
   if (isLoading && !data) {
     return (
@@ -194,6 +201,7 @@ export default function LineChartSvg({ data, isLoading, series, format, logScale
           tickMargin={8}
         />
         <YAxis
+          yAxisId="left"
           scale={logScale ? "log" : "auto"}
           allowDataOverflow={logScale || undefined}
           tickFormatter={compact}
@@ -202,13 +210,25 @@ export default function LineChartSvg({ data, isLoading, series, format, logScale
           width={54}
           domain={logScale ? [(min: number) => Math.max(1, min * 0.7), (max: number) => max * 1.3] : ["auto", "auto"]}
         />
+        {hasRight && (
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            tickFormatter={(n) => rightFmt(n)}
+            tick={{ fill: "var(--color-silver-400)", fontSize: 11 }}
+            stroke="var(--color-silver-700)"
+            width={58}
+            domain={["auto", "auto"]}
+          />
+        )}
         <Tooltip
           cursor={{ stroke: "var(--color-silver-500)", strokeWidth: 1 }}
-          content={<ChartTooltip series={series} format={fmt} />}
+          content={<ChartTooltip series={series} format={fmt} rightFormat={rightFmt} />}
         />
         {series.map((s) => (
           <Area
             key={s.key}
+            yAxisId={s.axis === "right" ? "right" : "left"}
             type="monotone"
             dataKey={s.key}
             name={s.label ?? s.key}

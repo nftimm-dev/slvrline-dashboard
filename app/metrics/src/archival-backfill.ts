@@ -40,6 +40,7 @@ import { computeHistoricalAprForBlock } from "./formulas/apr";
 import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
 import { computeStakingApy } from "./formulas/stakingApy";
+import { fetchEthUsdHistory, nearestUsd } from "./ethUsd";
 import { archivalCall, archivalGetBlock, decodeUint256, getLogsAdaptive, TRANSFER_TOPIC0, ZERO_TOPIC } from "./rpc";
 import { getHead, generateSampleBlocks } from "./block-resolver";
 import { aggregate3, type Call3 } from "./multicall";
@@ -482,6 +483,15 @@ async function stakingApyBackfill(
   await sql`DELETE FROM metrics.metric_snapshots WHERE metric_name = 'staking_apr'`;
   console.log("[backfill][staking-apy] Cleared existing staking_apr rows");
 
+  // Historical ETH/USD (hourly) to denominate the SLVR price line in USD.
+  let ethHist: Array<[number, number]> = [];
+  try {
+    ethHist = await fetchEthUsdHistory(10);
+    console.log(`[backfill][staking-apy] Fetched ${ethHist.length} hourly ETH/USD points from Coingecko`);
+  } catch (e) {
+    console.warn("[backfill][staking-apy] ETH/USD history fetch failed — price line will be null:", String(e));
+  }
+
   let processed = 0;
   let skipped = 0;
   const t0 = Date.now();
@@ -494,15 +504,21 @@ async function stakingApyBackfill(
         skipped++;
         continue; // early samples: no distributions / no pool liquidity yet
       }
+      const ethUsd = nearestUsd(ethHist, Number(timestamp) * 1000);
+      const slvrPriceUsd =
+        apy.slvrPerEth > 0 && ethUsd > 0 ? (1 / apy.slvrPerEth) * ethUsd : null;
       await writeSnapshot({
         metricName: "staking_apr",
         value: apy.permanentAprPercent,
         value2: apy.baseAprPercent,
-        value3: apy.totalWeight,
+        value3: slvrPriceUsd,
         metadata: {
           by_lock: apy.byLock,
           window_days: apy.windowDays,
           slvr_per_eth: apy.slvrPerEth,
+          slvr_price_usd: slvrPriceUsd,
+          eth_usd: ethUsd,
+          total_weight: apy.totalWeight,
           delta_rpw: apy.deltaRpw,
           permanent_multiplier: apy.permanentMultiplier,
           block: block.toString(),
@@ -517,7 +533,7 @@ async function stakingApyBackfill(
       processed++;
       console.log(
         `[backfill][staking-apy] ${i + 1}/${samples.length} block=${block} ` +
-        `permanent=${apy.permanentAprPercent.toFixed(0)}% (${apy.windowDays}d)`
+        `permanent=${apy.permanentAprPercent.toFixed(0)}% (${apy.windowDays}d) SLVR $${slvrPriceUsd?.toFixed(2) ?? "?"}`
       );
     } catch (e) {
       console.error(`[backfill][staking-apy] block=${block} Error:`, String(e));
