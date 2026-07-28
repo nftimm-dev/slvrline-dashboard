@@ -147,33 +147,39 @@ async function readDividends(): Promise<{
 
 interface LpRow {
   value: string | null;
+  value2: string | null;
   value3: string | null;
   metadata: Record<string, unknown> | null;
   snapshot_at: Date;
 }
 
-/** Latest lp_staking_apr snapshot (Uniswap V4 LP-position staking, SLVR sell-tax rewards). */
+/** Latest lp_staking_apr snapshot — blended + concentrated/full-range cohort APRs. */
 async function readLpStaking(): Promise<{
-  aprPercent: number | null;
+  blendedApr: number | null;
+  concentratedApr: number | null;
+  fullRangeApr: number | null;
   rewardSlvrPerDay: number | null;
   stakedValueEth: number | null;
   positionCount: number | null;
 }> {
   const db = getDb();
   const rows = await db<LpRow[]>`
-    SELECT value, value3, metadata, snapshot_at
+    SELECT value, value2, value3, metadata, snapshot_at
     FROM metrics.metric_snapshots
     WHERE metric_name = 'lp_staking_apr' AND value IS NOT NULL
     ORDER BY snapshot_at DESC
     LIMIT 1
   `;
   if (rows.length === 0) {
-    return { aprPercent: null, rewardSlvrPerDay: null, stakedValueEth: null, positionCount: null };
+    return { blendedApr: null, concentratedApr: null, fullRangeApr: null, rewardSlvrPerDay: null, stakedValueEth: null, positionCount: null };
   }
-  const meta = rows[0].metadata ?? {};
+  const r = rows[0];
+  const meta = r.metadata ?? {};
   return {
-    aprPercent: rows[0].value !== null ? parseFloat(rows[0].value) : null,
-    rewardSlvrPerDay: rows[0].value3 !== null ? parseFloat(rows[0].value3) : null,
+    blendedApr: r.value !== null ? parseFloat(r.value) : null,
+    concentratedApr: r.value2 !== null ? parseFloat(r.value2) : null,
+    fullRangeApr: r.value3 !== null ? parseFloat(r.value3) : null,
+    rewardSlvrPerDay: typeof meta.reward_slvr_per_day === "number" ? meta.reward_slvr_per_day : null,
     stakedValueEth: typeof meta.staked_value_eth === "number" ? meta.staked_value_eth : null,
     positionCount: typeof meta.position_count === "number" ? meta.position_count : null,
   };
@@ -383,33 +389,50 @@ async function build(): Promise<EarnResponse> {
       "Mine — play Grid Mining — and DON'T claim your rewards. A refining fee taken from other miners' claims is redistributed to everyone still holding unclaimed rewards. Sitting on your unclaimed pile is what earns the dividend.",
   };
 
-  // LP staking option (Uniswap V4 position staking — SLVR from the sell tax).
-  const lpStakingOption: Omit<EarnOption, "rank"> | null =
-    lpStaking.aprPercent !== null
+  // LP staking options (Uniswap V4 position staking — SLVR from the sell tax),
+  // split by range type: rewards are per unit of liquidity, so a concentrated
+  // range packs more liquidity per dollar and earns a higher APR than full-range.
+  const lpHow =
+    "Provide liquidity to the SLVR/ETH Uniswap V4 pool (the one with the SLVR hook) and stake your position NFT on the SLVR site. You earn a share of the 2% sell tax as SLVR, split across stakers by liquidity. Volume-dependent — the rate moves with selling.";
+  const lpConcentratedOption: Omit<EarnOption, "rank"> | null =
+    lpStaking.concentratedApr !== null
       ? {
-          key: "lp_staking",
+          key: "lp_concentrated",
           track: "staking",
-          name: "LP Staking (Uniswap V4)",
-          headline: {
-            value: lpStaking.aprPercent,
-            unit: "percent",
-            display: fmtPct(lpStaking.aprPercent),
-          },
+          name: "LP Staking — concentrated",
+          headline: { value: lpStaking.concentratedApr, unit: "percent", display: fmtPct(lpStaking.concentratedApr) },
           asset: "SLVR",
-          headlineNote: "trailing-24h · sell-tax rewards · paid in SLVR",
+          headlineNote: "tight range · most reward per $ · paid in SLVR",
           reliability: "live_volatile",
           reliabilityLabel: "live · volatile · new pool",
-          howTo:
-            "Provide liquidity to the SLVR/ETH Uniswap V4 pool (the one with the SLVR hook), then stake your position NFT on the SLVR site. You earn a share of the 2% sell-side tax as SLVR (minted as a permanent veSLVR lock). Volume-dependent — the rate rises and falls with selling.",
-          aprPercent: lpStaking.aprPercent,
+          howTo: `${lpHow} A CONCENTRATED range (tight around the current price) packs the most liquidity per dollar, so it earns the highest APR — but it needs active management and stops earning if price leaves the range.`,
+          aprPercent: lpStaking.concentratedApr,
         }
       : null;
+  const lpFullRangeOption: Omit<EarnOption, "rank"> | null =
+    lpStaking.fullRangeApr !== null
+      ? {
+          key: "lp_fullrange",
+          track: "staking",
+          name: "LP Staking — full-range",
+          headline: { value: lpStaking.fullRangeApr, unit: "percent", display: fmtPct(lpStaking.fullRangeApr) },
+          asset: "SLVR",
+          headlineNote: "always in range · lower APR · paid in SLVR",
+          reliability: "live_volatile",
+          reliabilityLabel: "live · volatile · new pool",
+          howTo: `${lpHow} A FULL-RANGE position always earns but spreads liquidity thin, so its APR is lower — set-and-forget.`,
+          aprPercent: lpStaking.fullRangeApr,
+        }
+      : null;
+  const lpOptions = [lpConcentratedOption, lpFullRangeOption].filter(
+    (o): o is Omit<EarnOption, "rank"> => o !== null
+  );
 
   // Ranking: sort all by APR value descending when both tracks have absolute APRs.
   // Fall back to dividends-first + staking-by-multiplier when staking APR unavailable.
   const allOptions: Omit<EarnOption, "rank">[] = [
     dividendsOption,
-    ...(lpStakingOption ? [lpStakingOption] : []),
+    ...lpOptions,
     ...stakeOptions,
   ];
 
@@ -432,7 +455,7 @@ async function build(): Promise<EarnResponse> {
     );
     ordered = [
       dividendsOption,
-      ...(lpStakingOption ? [lpStakingOption] : []),
+      ...lpOptions,
       ...stakingRanked,
     ];
   }
@@ -440,8 +463,8 @@ async function build(): Promise<EarnResponse> {
   const options: EarnOption[] = ordered.map((o, i) => ({ ...o, rank: i + 1 }));
 
   const lpNote =
-    lpStaking.aprPercent !== null
-      ? `LP staking (stake a Uniswap V4 SLVR/ETH position) earns a share of the 2% sell tax — ~${lpStaking.rewardSlvrPerDay?.toFixed(1) ?? "?"} SLVR/day split across ${lpStaking.positionCount ?? "?"} staked positions worth ~${lpStaking.stakedValueEth?.toFixed(1) ?? "?"} ETH, valued exactly per-position. It's volume-dependent and the pool is young, so treat it as an estimate. `
+    lpStaking.blendedApr !== null
+      ? `LP staking (stake a Uniswap V4 SLVR/ETH position) earns a share of the 2% sell tax — ~${lpStaking.rewardSlvrPerDay?.toFixed(1) ?? "?"} SLVR/day across ${lpStaking.positionCount ?? "?"} positions (~${lpStaking.stakedValueEth?.toFixed(1) ?? "?"} ETH), valued exactly per-position. Rewards are per unit of liquidity, so a concentrated range earns more than full-range — shown as two rows. Volume-dependent + young pool, so treat as an estimate. `
       : "";
   const caption = stakingApr
     ? `Mining Dividends pay in SLVR; veSLVR staking pays in ETH; LP staking pays in SLVR — all shown as absolute % APR on trailing windows. ETH/SLVR ratio is embedded in the staking APR (~${stakingApr.ethPerDay.toFixed(1)} ETH/day to stakers). ${lpNote}All are early and volatile; rankings will shift. SLVR and ETH are different assets — consider every track.`

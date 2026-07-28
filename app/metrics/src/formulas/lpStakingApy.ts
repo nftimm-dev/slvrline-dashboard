@@ -33,6 +33,9 @@ const POOL_CREATION_BLOCK = 20959201n; // Initialize of the hooked SLVR/ETH pool
 const BLOCKS_PER_DAY = 864000n; // 100ms blocks
 
 const Q96 = 2 ** 96;
+// V4 full-range aligns to ±887220 at tickSpacing 60; treat near-min/max as full-range.
+const FULL_RANGE_MIN_TICK = -880000;
+const FULL_RANGE_MAX_TICK = 880000;
 
 const SV_ABI = parseAbi([
   "function getSlot0(bytes32) view returns (uint160,int24,uint24,uint24)",
@@ -94,6 +97,14 @@ function amountsForLiquidity(L: number, tickLower: number, tickUpper: number, sq
 
 export interface LpStakingApyResult {
   aprPercent: number;
+  /** APR for the concentrated-position cohort (higher — more liquidity per $). */
+  concentratedApr: number;
+  /** APR for the full-range cohort (lower — less liquidity per $). */
+  fullRangeApr: number;
+  concentratedValueEth: number;
+  fullRangeValueEth: number;
+  concentratedPositions: number;
+  fullRangePositions: number;
   stakedValueEth: number;
   stakedSlvr: number;
   stakedEth: number;
@@ -129,6 +140,9 @@ export async function computeLpStakingApy(atBlock?: bigint): Promise<LpStakingAp
   let stakedEth = 0;
   let stakedSlvr = 0;
   let count = 0;
+  // Split by range type (concentrated vs full-range).
+  let concL = 0, concVal = 0, concN = 0;
+  let fullL = 0, fullVal = 0, fullN = 0;
   for (const id of ids) {
     let owner: string;
     try {
@@ -144,9 +158,16 @@ export async function computeLpStakingApy(atBlock?: bigint): Promise<LpStakingAp
     ]);
     const tickLower = Number(BigInt.asIntN(24, ((info as bigint) >> 8n) & 0xffffffn));
     const tickUpper = Number(BigInt.asIntN(24, ((info as bigint) >> 32n) & 0xffffffn));
-    const [a0, a1] = amountsForLiquidity(Number(L), tickLower, tickUpper, sp);
+    const Ln = Number(L);
+    const [a0, a1] = amountsForLiquidity(Ln, tickLower, tickUpper, sp);
+    const posValueEth = a0 / 1e18 + (a1 / 1e18) / slvrPerEth;
     stakedEth += a0 / 1e18;
     stakedSlvr += a1 / 1e18;
+    if (tickLower <= FULL_RANGE_MIN_TICK && tickUpper >= FULL_RANGE_MAX_TICK) {
+      fullL += Ln; fullVal += posValueEth; fullN++;
+    } else {
+      concL += Ln; concVal += posValueEth; concN++;
+    }
   }
   const stakedValueEth = stakedEth + stakedSlvr / slvrPerEth;
   if (!(stakedValueEth > 0)) return null;
@@ -164,8 +185,22 @@ export async function computeLpStakingApy(atBlock?: bigint): Promise<LpStakingAp
   const annualEth = (rewardSlvrPerDay * 365) / slvrPerEth;
   const aprPercent = (annualEth / stakedValueEth) * 100;
 
+  // Rewards are per unit of liquidity, so each cohort's reward share ∝ its L,
+  // but its APR is against its own capital value. Concentrated packs more L per
+  // dollar → higher APR; full-range spreads thin → lower APR.
+  const totalL = concL + fullL;
+  const rewardPerL = totalL > 0 ? rewardSlvrPerDay / totalL : 0;
+  const cohortApr = (cL: number, cVal: number): number =>
+    cVal > 0 ? ((rewardPerL * cL * 365) / slvrPerEth / cVal) * 100 : 0;
+
   return {
     aprPercent,
+    concentratedApr: cohortApr(concL, concVal),
+    fullRangeApr: cohortApr(fullL, fullVal),
+    concentratedValueEth: concVal,
+    fullRangeValueEth: fullVal,
+    concentratedPositions: concN,
+    fullRangePositions: fullN,
     stakedValueEth,
     stakedSlvr,
     stakedEth,
