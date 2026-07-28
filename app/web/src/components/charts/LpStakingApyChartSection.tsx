@@ -12,7 +12,17 @@ import type { RangeKey } from "@/hooks/useHistory";
  * rewards ÷ exact per-position staked value. The pool is young, so expect a
  * short, jagged series.
  */
-export default function LpStakingApyChartSection() {
+export default function LpStakingApyChartSection({
+  dataKey = "v",
+  title = "LP Staking APR",
+  subtitle = "· Uniswap V4 · sell-tax rewards · 24h rolling",
+  color = "#34d399",
+}: {
+  dataKey?: "v" | "v2" | "v3";
+  title?: string;
+  subtitle?: string;
+  color?: string;
+} = {}) {
   const [range, setRange] = useState<RangeKey>("all");
   const { data, isLoading } = useHistory("lp_staking_apr", range);
 
@@ -26,9 +36,9 @@ export default function LpStakingApyChartSection() {
             color: "var(--color-silver-200)",
           }}
         >
-          LP Staking APR{" "}
+          {title}{" "}
           <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--color-silver-400)" }}>
-            · Uniswap V4 · sell-tax rewards · 24h rolling
+            {subtitle}
           </span>
         </h2>
         <TimeRangeSelector value={range} onChange={setRange} />
@@ -45,7 +55,7 @@ export default function LpStakingApyChartSection() {
         <LineChartSvg
           data={data}
           isLoading={isLoading}
-          series={[{ key: "v", color: "#34d399", label: "LP APR" }]}
+          series={[{ key: dataKey, color, label: title }]}
           format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + "%"}
         />
       </div>

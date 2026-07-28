@@ -594,9 +594,15 @@ async function lpStakingApyBackfill(): Promise<void> {
       await writeSnapshot({
         metricName: "lp_staking_apr",
         value: lp.aprPercent,
-        value2: lp.stakedValueEth,
-        value3: lp.rewardSlvrPerDay,
+        value2: lp.concentratedApr,
+        value3: lp.fullRangeApr,
         metadata: {
+          concentrated_apr: lp.concentratedApr,
+          fullrange_apr: lp.fullRangeApr,
+          concentrated_value_eth: lp.concentratedValueEth,
+          fullrange_value_eth: lp.fullRangeValueEth,
+          concentrated_positions: lp.concentratedPositions,
+          fullrange_positions: lp.fullRangePositions,
           staked_value_eth: lp.stakedValueEth,
           staked_eth: lp.stakedEth,
           staked_slvr: lp.stakedSlvr,

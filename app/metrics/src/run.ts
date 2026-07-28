@@ -175,10 +175,16 @@ export async function computeAndWrite(): Promise<void> {
     if (lp) {
       await writeSnapshot({
         metricName: "lp_staking_apr",
-        value: lp.aprPercent, // headline LP APR
-        value2: lp.stakedValueEth, // staked position value (ETH)
-        value3: lp.rewardSlvrPerDay, // reward stream (SLVR/day)
+        value: lp.aprPercent, // headline (blended) LP APR
+        value2: lp.concentratedApr, // concentrated-cohort APR
+        value3: lp.fullRangeApr, // full-range-cohort APR
         metadata: {
+          concentrated_apr: lp.concentratedApr,
+          fullrange_apr: lp.fullRangeApr,
+          concentrated_value_eth: lp.concentratedValueEth,
+          fullrange_value_eth: lp.fullRangeValueEth,
+          concentrated_positions: lp.concentratedPositions,
+          fullrange_positions: lp.fullRangePositions,
           staked_value_eth: lp.stakedValueEth,
           staked_eth: lp.stakedEth,
           staked_slvr: lp.stakedSlvr,
@@ -196,8 +202,8 @@ export async function computeAndWrite(): Promise<void> {
         blockNumber: headBlock,
       });
       console.log(
-        `[metrics] lp_staking_apr: ${lp.aprPercent.toFixed(0)}% ` +
-        `(staked ${lp.stakedValueEth.toFixed(2)} ETH, ${lp.rewardSlvrPerDay.toFixed(1)} SLVR/day, ${lp.positionCount} positions)`
+        `[metrics] lp_staking_apr: blended ${lp.aprPercent.toFixed(0)}% ` +
+        `(concentrated ${lp.concentratedApr.toFixed(0)}% / full-range ${lp.fullRangeApr.toFixed(0)}%, ${lp.positionCount} pos)`
       );
     } else {
       console.log("[metrics] lp_staking_apr: NULL (mechanism inactive)");

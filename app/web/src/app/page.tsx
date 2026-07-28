@@ -20,7 +20,18 @@ export default function Home() {
         {/* Historical charts — self-contained Client Components */}
         <AprChartSection />
         <StakingApyChartSection />
-        <LpStakingApyChartSection />
+        <LpStakingApyChartSection
+          dataKey="v2"
+          title="LP APR — Concentrated"
+          subtitle="· Uniswap V4 · tight-range LPs · 24h rolling"
+          color="#34d399"
+        />
+        <LpStakingApyChartSection
+          dataKey="v3"
+          title="LP APR — Full-range"
+          subtitle="· Uniswap V4 · full-range LPs · 24h rolling"
+          color="#22d3ee"
+        />
         <SupplyChartSection />
         <StakingChartSection />
         <PriceDisplay />
