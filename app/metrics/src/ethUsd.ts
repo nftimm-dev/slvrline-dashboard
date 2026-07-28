@@ -18,7 +18,9 @@ export async function fetchEthUsdNow(): Promise<number> {
     });
     const j = (await r.json()) as { priceUsd?: number | string; price?: number | string };
     const v = Number(j.priceUsd ?? j.price ?? 0);
-    return Number.isFinite(v) && v > 0 ? v : 0;
+    // Sanity bound — reject garbage responses (a bad read once yielded ~$1.9M,
+    // spiking the derived SLVR price to $55k). ETH lives well within [100, 100k].
+    return Number.isFinite(v) && v >= 100 && v <= 100_000 ? v : 0;
   } catch {
     return 0;
   }

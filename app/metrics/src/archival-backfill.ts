@@ -505,8 +505,10 @@ async function stakingApyBackfill(
         continue; // early samples: no distributions / no pool liquidity yet
       }
       const ethUsd = nearestUsd(ethHist, Number(timestamp) * 1000);
-      const slvrPriceUsd =
+      const rawPrice =
         apy.slvrPerEth > 0 && ethUsd > 0 ? (1 / apy.slvrPerEth) * ethUsd : null;
+      const slvrPriceUsd =
+        rawPrice !== null && rawPrice >= 0.01 && rawPrice <= 5000 ? rawPrice : null;
       await writeSnapshot({
         metricName: "staking_apr",
         value: apy.permanentAprPercent,
