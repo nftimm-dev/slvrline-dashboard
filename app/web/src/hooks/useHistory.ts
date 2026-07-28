@@ -9,6 +9,7 @@ export type RangeKey = "24h" | "7d" | "30d" | "90d" | "all";
 export type MetricName =
   | "dividends_apr"
   | "staking_apr"
+  | "lp_staking_apr"
   | "circulating_supply"
   | "runway_months"
   | "total_staked_slvr"
