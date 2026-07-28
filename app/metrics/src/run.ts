@@ -23,6 +23,7 @@ import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
 import { computeStaking, type VeLock } from "./formulas/staking";
 import { computeStakingApy } from "./formulas/stakingApy";
+import { computeLpStakingApy } from "./formulas/lpStakingApy";
 import { fetchEthUsdNow } from "./ethUsd";
 import { computeLotteryRoundState } from "./formulas/lottery";
 import { getHead } from "./block-resolver";
@@ -166,6 +167,43 @@ export async function computeAndWrite(): Promise<void> {
     }
   } catch (e) {
     console.error("[metrics][staking_apr] Error:", e);
+  }
+
+  // ---- lp_staking_apr (Uniswap V4 LP-position staking APR — SLVR from sell tax) ----
+  try {
+    const lp = await computeLpStakingApy();
+    if (lp) {
+      await writeSnapshot({
+        metricName: "lp_staking_apr",
+        value: lp.aprPercent, // headline LP APR
+        value2: lp.stakedValueEth, // staked position value (ETH)
+        value3: lp.rewardSlvrPerDay, // reward stream (SLVR/day)
+        metadata: {
+          staked_value_eth: lp.stakedValueEth,
+          staked_eth: lp.stakedEth,
+          staked_slvr: lp.stakedSlvr,
+          reward_slvr_per_day: lp.rewardSlvrPerDay,
+          position_count: lp.positionCount,
+          staked_pct_of_pool: lp.stakedPctOfPool,
+          staked_liquidity: lp.stakedLiquidity,
+          pool_liquidity: lp.poolLiquidity,
+          slvr_per_eth: lp.slvrPerEth,
+          reward_token: "SLVR",
+          method: "trailing_24h_selltax / exact_position_valuation",
+          source: "onchain_v4_hook",
+        },
+        snapshotAt: now,
+        blockNumber: headBlock,
+      });
+      console.log(
+        `[metrics] lp_staking_apr: ${lp.aprPercent.toFixed(0)}% ` +
+        `(staked ${lp.stakedValueEth.toFixed(2)} ETH, ${lp.rewardSlvrPerDay.toFixed(1)} SLVR/day, ${lp.positionCount} positions)`
+      );
+    } else {
+      console.log("[metrics] lp_staking_apr: NULL (mechanism inactive)");
+    }
+  } catch (e) {
+    console.error("[metrics][lp_staking_apr] Error:", e);
   }
 
   // ---- 2. circulating_supply + 7. total_supply ----
