@@ -23,6 +23,7 @@ import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
 import { computeStaking, type VeLock } from "./formulas/staking";
 import { computeStakingApy } from "./formulas/stakingApy";
+import { fetchEthUsdNow } from "./ethUsd";
 import { computeLotteryRoundState } from "./formulas/lottery";
 import { getHead } from "./block-resolver";
 import { SLVR_CAP } from "./constants";
@@ -125,15 +126,23 @@ export async function computeAndWrite(): Promise<void> {
   try {
     const apy = await computeStakingApy(headBlock);
     if (apy) {
+      // SLVR price (USD) from the same on-chain pool ratio × live ETH/USD — stored
+      // in value3 so the Staking APY chart can overlay it on a second axis.
+      const ethUsd = await fetchEthUsdNow();
+      const slvrPriceUsd =
+        apy.slvrPerEth > 0 && ethUsd > 0 ? (1 / apy.slvrPerEth) * ethUsd : null;
       await writeSnapshot({
         metricName: "staking_apr",
         value: apy.permanentAprPercent, // headline: permanent-lock APY
         value2: apy.baseAprPercent, // 1× (no-lock) base rate
-        value3: apy.totalWeight,
+        value3: slvrPriceUsd, // SLVR price in USD (overlay line)
         metadata: {
           by_lock: apy.byLock,
           window_days: apy.windowDays,
           slvr_per_eth: apy.slvrPerEth,
+          slvr_price_usd: slvrPriceUsd,
+          eth_usd: ethUsd,
+          total_weight: apy.totalWeight,
           delta_rpw: apy.deltaRpw,
           permanent_multiplier: apy.permanentMultiplier,
           block: apy.block.toString(),
@@ -146,7 +155,7 @@ export async function computeAndWrite(): Promise<void> {
       });
       console.log(
         `[metrics] staking_apr: permanent ${apy.permanentAprPercent.toFixed(1)}% ` +
-        `(base ${apy.baseAprPercent.toFixed(1)}%, ${apy.windowDays}d window)`
+        `(base ${apy.baseAprPercent.toFixed(1)}%, ${apy.windowDays}d) | SLVR $${slvrPriceUsd?.toFixed(2) ?? "?"}`
       );
     } else {
       console.log("[metrics] staking_apr: NULL (no distributions / no pool price in window)");
