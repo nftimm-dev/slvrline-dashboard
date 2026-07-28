@@ -40,6 +40,7 @@ import { computeHistoricalAprForBlock } from "./formulas/apr";
 import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
 import { computeStakingApy } from "./formulas/stakingApy";
+import { computeLpStakingApy } from "./formulas/lpStakingApy";
 import { fetchEthUsdHistory, nearestUsd } from "./ethUsd";
 import { archivalCall, archivalGetBlock, decodeUint256, getLogsAdaptive, TRANSFER_TOPIC0, ZERO_TOPIC } from "./rpc";
 import { getHead, generateSampleBlocks } from "./block-resolver";
@@ -550,12 +551,93 @@ async function stakingApyBackfill(
   console.log(`[backfill][staking-apy] Done. Wrote ${processed}, skipped ${skipped} (no rate yet).`);
 }
 
+// ---------------------------------------------------------------------------
+// LP-staking-APY backfill: reconstruct lp_staking_apr over the hooked V4 pool's
+// life (it's young). At each hourly block, computeLpStakingApy(block) reads the
+// pool price, exactly values the staked positions, and measures the trailing
+// sell-tax reward — all archival.
+// ---------------------------------------------------------------------------
+const LP_POOL_CREATION_BLOCK = 20959201n;
+async function lpStakingApyBackfill(): Promise<void> {
+  console.log("[backfill][lp-staking-apy] Rebuilding lp_staking_apr over the pool's life (hourly)");
+  await sql`DELETE FROM metrics.metric_snapshots WHERE metric_name = 'lp_staking_apr'`;
+  const head = await getHead();
+  const STEP = 36000n; // ~1h at 100ms blocks
+  const samples: bigint[] = [];
+  for (let b = LP_POOL_CREATION_BLOCK; b < head.block; b += STEP) samples.push(b);
+  samples.push(head.block);
+  console.log(`[backfill][lp-staking-apy] ${samples.length} hourly samples ${LP_POOL_CREATION_BLOCK}→${head.block}`);
+
+  let processed = 0;
+  let skipped = 0;
+  const t0 = Date.now();
+  for (let i = 0; i < samples.length; i++) {
+    const block = samples[i];
+    try {
+      const blk = await archivalGetBlock(block);
+      const ts = blk ? Number(blk.timestamp) : Math.floor(Date.now() / 1000);
+      // Retry — rapid archival bursts occasionally get throttled ("missing params").
+      let lp: Awaited<ReturnType<typeof computeLpStakingApy>> = null;
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          lp = await computeLpStakingApy(block);
+          break;
+        } catch (err) {
+          if (attempt === 3) throw err;
+          await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        }
+      }
+      if (!lp) {
+        skipped++;
+        continue; // pre-staking sample
+      }
+      await writeSnapshot({
+        metricName: "lp_staking_apr",
+        value: lp.aprPercent,
+        value2: lp.stakedValueEth,
+        value3: lp.rewardSlvrPerDay,
+        metadata: {
+          staked_value_eth: lp.stakedValueEth,
+          staked_eth: lp.stakedEth,
+          staked_slvr: lp.stakedSlvr,
+          reward_slvr_per_day: lp.rewardSlvrPerDay,
+          position_count: lp.positionCount,
+          staked_pct_of_pool: lp.stakedPctOfPool,
+          staked_liquidity: lp.stakedLiquidity,
+          pool_liquidity: lp.poolLiquidity,
+          slvr_per_eth: lp.slvrPerEth,
+          reward_token: "SLVR",
+          method: "trailing_24h_selltax / exact_position_valuation",
+          source: "archival_backfill_lp_apy",
+        },
+        snapshotAt: new Date(ts * 1000),
+        blockNumber: block,
+        backfill: true,
+      });
+      processed++;
+      console.log(
+        `[backfill][lp-staking-apy] ${i + 1}/${samples.length} block=${block} ` +
+        `apr=${lp.aprPercent.toFixed(0)}% staked=${lp.stakedValueEth.toFixed(2)}ETH pos=${lp.positionCount} rew=${lp.rewardSlvrPerDay.toFixed(1)}/d`
+      );
+    } catch (e) {
+      console.error(`[backfill][lp-staking-apy] block=${block} Error:`, String(e).slice(0, 100));
+    }
+    await new Promise((r) => setTimeout(r, 700)); // pace archival calls between samples
+    if ((i + 1) % 5 === 0) {
+      const el = (Date.now() - t0) / 1000;
+      console.log(`[backfill][lp-staking-apy] ${i + 1}/${samples.length} | ${el.toFixed(0)}s`);
+    }
+  }
+  console.log(`[backfill][lp-staking-apy] done: ${processed} written, ${skipped} skipped`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
   const aprOnly = args.includes("--apr-only");
   const stakingOnly = args.includes("--staking-only");
   const stakingApy = args.includes("--staking-apy");
+  const lpStakingApy = args.includes("--lp-staking-apy");
 
   if (dryRun) {
     console.log("[backfill] DRY RUN — will compute sample blocks but not write to DB");
@@ -609,6 +691,21 @@ async function main() {
     `;
     console.log("\n[backfill][staking-apy] staking_apr (permanent) series:");
     for (const r of rows) console.log(`  ${r.t}  ${r.perm}%`);
+    await sql.end();
+    return;
+  }
+
+  // LP-staking-APY mode: rebuild lp_staking_apr over the hooked pool's life.
+  if (lpStakingApy) {
+    await lpStakingApyBackfill();
+    const rows = await sql<Array<{ t: string; apr: string }>>`
+      SELECT to_char(snapshot_at,'MM-DD HH24:MI') AS t, round(value::numeric, 0)::text AS apr
+      FROM metrics.metric_snapshots
+      WHERE metric_name = 'lp_staking_apr' AND value IS NOT NULL
+      ORDER BY snapshot_at ASC
+    `;
+    console.log("\n[backfill][lp-staking-apy] lp_staking_apr series:");
+    for (const r of rows) console.log(`  ${r.t}  ${r.apr}%`);
     await sql.end();
     return;
   }
