@@ -46,6 +46,7 @@ interface DexPair {
   baseToken?: { symbol?: string };
   quoteToken?: { symbol?: string };
   priceUsd?: string;
+  priceNative?: string;
   liquidity?: { usd?: number };
   volume?: { h24?: number };
   fdv?: number;
@@ -57,7 +58,7 @@ interface DexscreenerResponse {
 
 async function fetchEthPrice(): Promise<number> {
   const res = await fetch(ETH_PRICE_URL, {
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.timeout(3500),
     headers: { "User-Agent": "slvrline-dashboard/1.0" },
   });
   if (!res.ok) throw new Error(`ETH price fetch failed: ${res.status}`);
@@ -82,10 +83,33 @@ async function fetchDexscreener(): Promise<DexscreenerResponse> {
   return res.json() as Promise<DexscreenerResponse>;
 }
 
+/**
+ * Derive ETH/USD from Dexscreener when the slvr.fun feed is unavailable: for a
+ * WETH/ETH-quoted SLVR pair, ETH/USD = priceUsd / priceNative
+ * (USD-per-SLVR ÷ WETH-per-SLVR). Picks the deepest such pool.
+ */
+function deriveEthUsdFromPairs(pairs: DexPair[]): number {
+  const candidates = pairs
+    .filter((p) => {
+      const q = (p.quoteToken?.symbol ?? "").toUpperCase();
+      return (q === "WETH" || q === "ETH") && p.priceUsd && p.priceNative;
+    })
+    .map((p) => ({
+      liq: p.liquidity?.usd ?? 0,
+      usd: parseFloat(p.priceUsd ?? "0"),
+      native: parseFloat(p.priceNative ?? "0"),
+    }))
+    .filter((p) => p.usd > 0 && p.native > 0)
+    .sort((a, b) => b.liq - a.liq);
+  return candidates[0] ? candidates[0].usd / candidates[0].native : 0;
+}
+
 async function fetchMarketData(): Promise<MarketData> {
-  const [dexData, ethUsd] = await Promise.all([
+  // slvr.fun's ETH feed is a soft dependency — if it's down, derive ETH/USD from
+  // Dexscreener so vitals/earn/staking-rewards don't all 500 with it.
+  const [dexData, ethFromFeed] = await Promise.all([
     fetchDexscreener(),
-    fetchEthPrice(),
+    fetchEthPrice().catch(() => null),
   ]);
 
   const pairs = dexData.pairs ?? [];
@@ -117,6 +141,8 @@ async function fetchMarketData(): Promise<MarketData> {
   );
 
   const slvrUsd = primary?.price_usd ?? 0;
+  const ethUsd =
+    ethFromFeed && ethFromFeed > 0 ? ethFromFeed : deriveEthUsdFromPairs(pairs);
   const slvrEth = ethUsd > 0 ? slvrUsd / ethUsd : 0;
 
   return {
