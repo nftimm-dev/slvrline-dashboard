@@ -7,7 +7,9 @@ import { SlvrlineActions } from "@/components/common/SlvrlineActionLink";
 
 interface EarnShareCardProps {
   dividendsDisplay: string;
+  dividendsRank: number | null;
   stakingDisplay: string;
+  stakingRank: number | null;
   stakingWindowDays: number | null;
 }
 
@@ -45,7 +47,9 @@ function SnapshotMetric({
 
 export default function EarnShareCard({
   dividendsDisplay,
+  dividendsRank,
   stakingDisplay,
+  stakingRank,
   stakingWindowDays,
 }: EarnShareCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
@@ -134,7 +138,7 @@ export default function EarnShareCard({
 
           <div className="earn-share-card__metrics">
             <SnapshotMetric
-              rank="#1"
+              rank={dividendsRank ? `#${dividendsRank}` : "—"}
               eyebrow="GRID MINING DIVIDENDS"
               value={dividendsDisplay}
               asset="SLVR"
@@ -142,7 +146,7 @@ export default function EarnShareCard({
               accent="#a8f0c8"
             />
             <SnapshotMetric
-              rank="#2"
+              rank={stakingRank ? `#${stakingRank}` : "—"}
               eyebrow="PERMANENT STAKING"
               value={stakingDisplay}
               asset="ETH"

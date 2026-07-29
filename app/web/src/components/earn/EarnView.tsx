@@ -253,8 +253,12 @@ export default function EarnView() {
     );
   }
 
-  const dividends = data?.options.find((o) => o.track === "dividends");
-  const staking = data?.options.filter((o) => o.track === "staking") ?? [];
+  const dividends = data?.options.find((o) => o.key === "mining_dividends");
+  const permanentStaking = data?.options.find(
+    (o) => o.key === "stake_permanent"
+  );
+  const staking =
+    data?.options.filter((o) => o.key.startsWith("stake_")) ?? [];
   const hasStakingApr =
     staking.length > 0 && staking[0].headline.unit === "percent";
   // Highest and lowest staking APR for the explainer (sorted by rank — rank 1 = highest)
@@ -266,7 +270,9 @@ export default function EarnView() {
     <>
       <EarnShareCard
         dividendsDisplay={dividends?.headline.display ?? "LIVE"}
-        stakingDisplay={stakingByApr[0]?.headline.display ?? "LIVE"}
+        dividendsRank={dividends?.rank ?? null}
+        stakingDisplay={permanentStaking?.headline.display ?? "LIVE"}
+        stakingRank={permanentStaking?.rank ?? null}
         stakingWindowDays={data?.staking.windowDays ?? null}
       />
 
