@@ -40,6 +40,9 @@ const SEL = {
 const WAD = 1e18;
 const BLOCK_TIME_SEC = 0.1; // 100ms Robinhood Chain
 const BLOCKS_PER_DAY = 86400 / BLOCK_TIME_SEC; // 864,000
+const DEFAULT_TMAX_RAW = 120n * 86_400n;
+const DEFAULT_MMAX_RAW = 2_500_000_000_000_000_000n;
+const DEFAULT_P_RAW = 2_000_000_000_000_000_000n;
 
 const CACHE_KEY = "earn:comparison";
 const CACHE_TTL = 60;
@@ -93,6 +96,25 @@ interface EarnResponse {
   caption: string;
   source: string;
   updatedAt: string;
+  warnings?: string[];
+}
+
+type SourceResult<T> = {
+  value: T;
+  warning: string | null;
+};
+
+async function withFallback<T>(
+  label: string,
+  promise: Promise<T>,
+  fallback: T
+): Promise<SourceResult<T>> {
+  try {
+    return { value: await promise, warning: null };
+  } catch (err) {
+    console.error(`[/api/earn] ${label} unavailable:`, err);
+    return { value: fallback, warning: label };
+  }
 }
 
 function fmtPct(n: number): string {
@@ -252,16 +274,52 @@ function u(sel: string): Promise<bigint> {
 }
 
 async function build(): Promise<EarnResponse> {
-  const [dividends, lpStaking, tmaxRaw, mmaxRaw, pRaw, headBlock, market] =
-    await Promise.all([
-      readDividends(),
-      readLpStaking(),
-      u(SEL.TMAX),
-      u(SEL.MMAX),
-      u(SEL.P),
-      ethBlockNumber(),
+  const [
+    dividendsResult,
+    lpStakingResult,
+    tmaxResult,
+    mmaxResult,
+    pResult,
+    marketResult,
+  ] = await Promise.all([
+    withFallback("dividends snapshot", readDividends(), {
+      aprPercent: null,
+      dataStatus: "unavailable",
+      snapshotAt: null,
+      blockNumber: null,
+    }),
+    withFallback("lp staking snapshot", readLpStaking(), {
+      blendedApr: null,
+      concentratedApr: null,
+      fullRangeApr: null,
+      rewardSlvrPerDay: null,
+      stakedValueEth: null,
+      positionCount: null,
+    }),
+    withFallback("TMAX", u(SEL.TMAX), DEFAULT_TMAX_RAW),
+    withFallback("MMAX", u(SEL.MMAX), DEFAULT_MMAX_RAW),
+    withFallback("P", u(SEL.P), DEFAULT_P_RAW),
+    withFallback<Awaited<ReturnType<typeof getMarketData>> | null>(
+      "market data",
       getMarketData(),
-    ]);
+      null
+    ),
+  ]);
+
+  const warnings = [
+    dividendsResult.warning,
+    lpStakingResult.warning,
+    tmaxResult.warning,
+    mmaxResult.warning,
+    pResult.warning,
+    marketResult.warning,
+  ].filter((warning): warning is string => warning !== null);
+  const dividends = dividendsResult.value;
+  const lpStaking = lpStakingResult.value;
+  const tmaxRaw = tmaxResult.value;
+  const mmaxRaw = mmaxResult.value;
+  const pRaw = pResult.value;
+  const market = marketResult.value;
 
   const tmaxSeconds = Number(tmaxRaw);
   const mmax = Number(mmaxRaw) / WAD; // 2.5
@@ -275,22 +333,55 @@ async function build(): Promise<EarnResponse> {
     return 1 + (mmax - 1) * (dSec / tmaxSeconds);
   };
 
-  // Read staking rpwHead + totalWeight
-  const [rpwHead, totalWeightRaw] = await Promise.all([
-    ethCall(VE_STAKING, SEL.rewardPerWeightStored, "latest").then(
-      decodeUint256
-    ),
-    ethCall(VE_STAKING, SEL.totalWeight, "latest").then(decodeUint256),
-  ]);
-  const totalWeight = Number(totalWeightRaw) / WAD;
-
-  // Compute staking APR (may return null if archival fails)
-  const stakingApr = await computeStakingApr(
-    headBlock,
-    rpwHead,
-    totalWeight,
-    market
-  );
+  let stakingApr: StakingAprResult | null = null;
+  if (market && market.slvr_usd > 0 && market.eth_usd > 0) {
+    const [headBlockResult, rpwHeadResult, totalWeightResult] =
+      await Promise.all([
+        withFallback<bigint | null>("head block", ethBlockNumber(), null),
+        withFallback<bigint | null>(
+          "staking reward accumulator",
+          ethCall(VE_STAKING, SEL.rewardPerWeightStored, "latest").then(
+            decodeUint256
+          ),
+          null
+        ),
+        withFallback<bigint | null>(
+          "staking total weight",
+          ethCall(VE_STAKING, SEL.totalWeight, "latest").then(decodeUint256),
+          null
+        ),
+      ]);
+    for (const warning of [
+      headBlockResult.warning,
+      rpwHeadResult.warning,
+      totalWeightResult.warning,
+    ]) {
+      if (warning) warnings.push(warning);
+    }
+    const totalWeight =
+      totalWeightResult.value !== null
+        ? Number(totalWeightResult.value) / WAD
+        : 0;
+    if (
+      headBlockResult.value !== null &&
+      rpwHeadResult.value !== null &&
+      totalWeight > 0
+    ) {
+      try {
+        stakingApr = await computeStakingApr(
+          headBlockResult.value,
+          rpwHeadResult.value,
+          totalWeight,
+          market
+        );
+      } catch (err) {
+        console.error("[/api/earn] staking APR unavailable:", err);
+        warnings.push("staking APR");
+      }
+    }
+  } else {
+    warnings.push("staking market inputs");
+  }
 
   // Lock length definitions
   const stakeDefs: Array<{
@@ -468,7 +559,7 @@ async function build(): Promise<EarnResponse> {
       : "";
   const caption = stakingApr
     ? `Mining Dividends pay in SLVR; veSLVR staking pays in ETH; LP staking pays in SLVR — all shown as absolute % APR on trailing windows. ETH/SLVR ratio is embedded in the staking APR (~${stakingApr.ethPerDay.toFixed(1)} ETH/day to stakers). ${lpNote}All are early and volatile; rankings will shift. SLVR and ETH are different assets — consider every track.`
-    : "Mining Dividends pays in SLVR; staking pays in ETH — different assets with different reliability. Staking APR temporarily unavailable (archival RPC issue); showing reward-weight multiplier instead. Rankings will update automatically.";
+    : "Mining Dividends pays in SLVR; staking pays in ETH — different assets with different reliability. Staking APR temporarily unavailable; showing reward-weight multiplier instead. Rankings will update automatically.";
 
   return {
     options,
@@ -485,6 +576,7 @@ async function build(): Promise<EarnResponse> {
     source:
       "dividends_apr snapshot (metrics.metric_snapshots) + rewardPerWeightStored Δ (0xaF68…7200) + TMAX/MMAX/P (0xd9b8…3B71) + Dexscreener + slvr.fun/api/price/eth",
     updatedAt: new Date().toISOString(),
+    ...(warnings.length > 0 ? { warnings } : {}),
   };
 }
 
