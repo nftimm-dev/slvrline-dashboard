@@ -6,14 +6,39 @@ import { toBlob } from "html-to-image";
 import { SlvrlineActions } from "@/components/common/SlvrlineActionLink";
 
 interface EarnShareCardProps {
-  dividendsDisplay: string;
-  dividendsRank: number | null;
-  stakingDisplay: string;
-  stakingRank: number | null;
-  stakingWindowDays: number | null;
+  metrics: EarnShareMetric[];
 }
 
 type CopyState = "idle" | "copying" | "copied" | "error";
+type EarnShareMetric = {
+  rank: number;
+  label: string;
+  value: string;
+  asset: "SLVR" | "ETH";
+  detail: string;
+};
+
+const METRIC_ACCENT: Record<EarnShareMetric["asset"], string> = {
+  SLVR: "#a8f0c8",
+  ETH: "#7eb8e8",
+};
+
+const FALLBACK_METRICS: EarnShareMetric[] = [
+  {
+    rank: 1,
+    label: "LIVE EARNING OPTION",
+    value: "LIVE",
+    asset: "SLVR",
+    detail: "UPDATING NOW",
+  },
+  {
+    rank: 2,
+    label: "LIVE EARNING OPTION",
+    value: "LIVE",
+    asset: "ETH",
+    detail: "UPDATING NOW",
+  },
+];
 
 function SnapshotMetric({
   rank,
@@ -46,14 +71,14 @@ function SnapshotMetric({
 }
 
 export default function EarnShareCard({
-  dividendsDisplay,
-  dividendsRank,
-  stakingDisplay,
-  stakingRank,
-  stakingWindowDays,
+  metrics,
 }: EarnShareCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [copyState, setCopyState] = useState<CopyState>("idle");
+  const displayMetrics =
+    metrics.length >= 2 ? metrics.slice(0, 2) : FALLBACK_METRICS;
+  const ariaMetricOne = displayMetrics[0];
+  const ariaMetricTwo = displayMetrics[1];
 
   async function copyCardImage() {
     const card = cardRef.current;
@@ -110,7 +135,7 @@ export default function EarnShareCard({
         ref={cardRef}
         className="earn-share-card"
         role="img"
-        aria-label={`SLVRline earning snapshot: mining dividends ${dividendsDisplay} and permanent staking ${stakingDisplay}`}
+        aria-label={`SLVRline earning snapshot: #1 ${ariaMetricOne?.label} ${ariaMetricOne?.value} and #2 ${ariaMetricTwo?.label} ${ariaMetricTwo?.value}`}
       >
         <div className="earn-share-card__grid" aria-hidden />
         <div className="earn-share-card__glow earn-share-card__glow--blue" aria-hidden />
@@ -132,31 +157,22 @@ export default function EarnShareCard({
             <p className="earn-share-card__eyebrow">ROBINHOOD CHAIN · SLVR</p>
             <h2 id="earn-share-card-title">How can I earn the most?</h2>
             <p className="earn-share-card__subtitle">
-              Two live earning tracks. Two different reward assets.
+              Top two live earn options by current ranked APR.
             </p>
           </div>
 
           <div className="earn-share-card__metrics">
-            <SnapshotMetric
-              rank={dividendsRank ? `#${dividendsRank}` : "—"}
-              eyebrow="GRID MINING DIVIDENDS"
-              value={dividendsDisplay}
-              asset="SLVR"
-              detail="TRAILING 24H APR"
-              accent="#a8f0c8"
-            />
-            <SnapshotMetric
-              rank={stakingRank ? `#${stakingRank}` : "—"}
-              eyebrow="PERMANENT STAKING"
-              value={stakingDisplay}
-              asset="ETH"
-              detail={
-                stakingWindowDays
-                  ? `${stakingWindowDays}D TRAILING APR`
-                  : "MAXIMUM 4.00× WEIGHT"
-              }
-              accent="#7eb8e8"
-            />
+            {displayMetrics.map((metric) => (
+              <SnapshotMetric
+                key={`${metric.rank}-${metric.label}`}
+                rank={`#${metric.rank}`}
+                eyebrow={metric.label}
+                value={metric.value}
+                asset={metric.asset}
+                detail={metric.detail}
+                accent={METRIC_ACCENT[metric.asset]}
+              />
+            ))}
           </div>
 
           <div className="earn-share-card__footer">

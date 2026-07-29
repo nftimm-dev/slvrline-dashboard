@@ -257,6 +257,14 @@ export default function EarnView() {
   const permanentStaking = data?.options.find(
     (o) => o.key === "stake_permanent"
   );
+  const topShareMetrics =
+    data?.options.slice(0, 2).map((option) => ({
+      rank: option.rank,
+      label: option.name.toUpperCase(),
+      value: option.headline.display,
+      asset: option.asset,
+      detail: option.headlineNote.toUpperCase(),
+    })) ?? [];
   const staking =
     data?.options.filter((o) => o.key.startsWith("stake_")) ?? [];
   const hasStakingApr =
@@ -268,13 +276,7 @@ export default function EarnView() {
 
   return (
     <>
-      <EarnShareCard
-        dividendsDisplay={dividends?.headline.display ?? "LIVE"}
-        dividendsRank={dividends?.rank ?? null}
-        stakingDisplay={permanentStaking?.headline.display ?? "LIVE"}
-        stakingRank={permanentStaking?.rank ?? null}
-        stakingWindowDays={data?.staking.windowDays ?? null}
-      />
+      <EarnShareCard metrics={topShareMetrics} />
 
       {/* Ranked list */}
       <Panel
