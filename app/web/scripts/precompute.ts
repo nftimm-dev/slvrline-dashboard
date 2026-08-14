@@ -19,8 +19,8 @@ type Task = { key: string; run: () => Promise<unknown> };
 
 const TASKS: Task[] = [
   { key: "mining_unclaimed", run: getMiningUnclaimed },
-  { key: "holders_economic", run: getEconomicHoldersData },
   { key: "growthfund", run: getGrowthFundData },
+  { key: "holders_economic", run: getEconomicHoldersData },
 ];
 
 async function main() {

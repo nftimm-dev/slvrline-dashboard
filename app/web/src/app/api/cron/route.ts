@@ -41,10 +41,12 @@ export async function GET(req: NextRequest) {
   }
 
   if (job === "caches" || job === "all") {
+    // Order matters: holders_economic can take ~280s (near the 300s function
+    // limit), so run the cheaper tasks FIRST to guarantee they populate.
     const tasks: Array<[string, () => Promise<unknown>]> = [
       ["mining_unclaimed", getMiningUnclaimed],
-      ["holders_economic", getEconomicHoldersData],
       ["growthfund", getGrowthFundData],
+      ["holders_economic", getEconomicHoldersData],
     ];
     for (const [key, fn] of tasks) {
       try {
