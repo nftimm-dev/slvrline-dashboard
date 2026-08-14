@@ -65,6 +65,8 @@ const CONTRACT_LABELS: Record<string, string> = {
   "0x7a58d6f46e92b02618edb4f5ff3b72f7e64077ad": "Buyback Keeper",
   "0xacdd8e9bad637798dbdb23a59cfa314743668ba4": "Buyback Executor",
   "0xf32fc533511783b2707a08eea22a9f4e59996100": "SLVR Graveyard",
+  // Growth Fund flywheel
+  "0xec8c0a41f4f8ff291e111db988d266bbf3f4ee3a": "Growth Fund Buyer",
 };
 
 /**

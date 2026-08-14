@@ -45,6 +45,14 @@ export const BUYBACK_BURNED_TOPIC0 =
 // began here). Scan start for the event history.
 export const DEPLOY_BLOCK_BUYBACK = 35_769_560n;
 
+// --- Growth Fund buyback (accumulation, NOT burn) ---------------------------
+// A separate EOA that buys SLVR on the V4 pool (~every 5 min) and HOLDS it — the
+// Growth Fund accumulating SLVR (buy pressure). Tracked via Transfer(SLVR → wallet);
+// it never sells, so cumulative bought == balanceOf.
+export const GROWTH_FUND_BUYER = "0xec8c0A41F4F8ff291E111DB988D266BBF3F4eE3a" as const;
+// First buy ~block 33,052,748 (2026-08-10); scan a little earlier to be safe.
+export const DEPLOY_BLOCK_GROWTHFUND = 32_000_000n;
+
 // Round-based canonical split: rounds < 12500 → V1 canonical, >= 12500 → V2 canonical
 export const MIGRATION_ROUND = 12_500n;
 

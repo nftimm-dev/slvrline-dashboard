@@ -7,6 +7,7 @@ import Panel from "@/components/analytics/Panel";
 import DataTable, { type Column } from "@/components/analytics/DataTable";
 import StateMessage from "@/components/analytics/StateMessage";
 import BuybackChartSection from "@/components/charts/BuybackChartSection";
+import GrowthFundSection from "@/components/buybacks/GrowthFundSection";
 import { getBlockscoutUrl } from "@/lib/labels";
 import type { BuybackData, BuybackRecentEvent } from "@/lib/buybacks";
 
@@ -204,6 +205,9 @@ export default function BuybacksView() {
         {data?.graveyardMatch === false ? " (currently diverging — see snapshot)" : ""}. USD uses
         the current ETH price. Updated every 5 min.
       </p>
+
+      {/* Growth Fund flywheel — separate accumulation stream (earns → stakes → buys back) */}
+      <GrowthFundSection />
     </>
   );
 }

@@ -97,3 +97,99 @@ export async function getTopHolders(tokenAddr: string): Promise<RawHolder[]> {
       onchainName: it.address!.name ?? null,
     }));
 }
+
+// --- Paginated address history ---------------------------------------------
+// The raw RPC eth_getLogs silently under-counts wide/dense ranges on this chain,
+// so for accurate per-address transfer/spend history we page Blockscout (reliable).
+
+interface BsPaged<T> {
+  items?: T[];
+  next_page_params?: Record<string, unknown> | null;
+}
+
+async function fetchAllPages<T>(path: string, maxPages = 20): Promise<T[]> {
+  const out: T[] = [];
+  let pageParams: Record<string, unknown> | null = null;
+  for (let page = 0; page < maxPages; page++) {
+    let url: string = path;
+    if (pageParams) {
+      const sep = path.includes("?") ? "&" : "?";
+      const parts: string[] = Object.entries(pageParams).map(
+        ([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`
+      );
+      url = path + sep + parts.join("&");
+    }
+    const data: BsPaged<T> = await fetchBlockscout<BsPaged<T>>(url);
+    if (data.items?.length) out.push(...data.items);
+    pageParams = data.next_page_params ?? null;
+    if (!pageParams) break;
+  }
+  return out;
+}
+
+interface BsTransferItem {
+  from?: { hash?: string };
+  to?: { hash?: string };
+  total?: { value?: string; decimals?: string };
+  value?: string;
+  block_number?: number;
+  block?: number;
+  timestamp?: string;
+}
+
+export interface AddressTransfer {
+  from: string;
+  to: string;
+  valueRaw: bigint;
+  block: number;
+  timestamp: string | null;
+}
+
+/** All ERC-20 transfers of `tokenAddr` touching `address` (paginated, reliable). */
+export async function getAddressTokenTransfers(
+  address: string,
+  tokenAddr: string
+): Promise<AddressTransfer[]> {
+  const items = await fetchAllPages<BsTransferItem>(
+    `/addresses/${address}/token-transfers?type=ERC-20&token=${tokenAddr}`
+  );
+  return items
+    .map((it) => ({
+      from: (it.from?.hash ?? "").toLowerCase(),
+      to: (it.to?.hash ?? "").toLowerCase(),
+      valueRaw: BigInt(it.total?.value ?? it.value ?? "0"),
+      block: it.block_number ?? it.block ?? 0,
+      timestamp: it.timestamp ?? null,
+    }))
+    .filter((t) => t.from || t.to);
+}
+
+interface BsTxItem {
+  from?: { hash?: string };
+  value?: string;
+  timestamp?: string;
+}
+
+/** Sum of native-coin (ETH) value sent BY `address` across all its txs (paginated). */
+export async function getAddressNativeSpent(
+  address: string
+): Promise<{ spentRaw: bigint; txCount: number; firstTs: string | null; lastTs: string | null }> {
+  const a = address.toLowerCase();
+  const items = await fetchAllPages<BsTxItem>(
+    `/addresses/${address}/transactions?filter=from`
+  );
+  let spentRaw = 0n;
+  let txCount = 0;
+  let firstTs: string | null = null;
+  let lastTs: string | null = null;
+  for (const it of items) {
+    if ((it.from?.hash ?? "").toLowerCase() !== a) continue;
+    spentRaw += BigInt(it.value ?? "0");
+    txCount++;
+    if (it.timestamp) {
+      lastTs = lastTs ?? it.timestamp; // items are newest-first
+      firstTs = it.timestamp;
+    }
+  }
+  return { spentRaw, txCount, firstTs, lastTs };
+}
