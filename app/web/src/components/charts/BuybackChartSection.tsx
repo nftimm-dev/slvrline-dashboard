@@ -1,19 +1,40 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import TimeRangeSelector from "./TimeRangeSelector";
 import LineChartSvg from "./LineChartSvg";
 import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
 
+function usdAxis(n: number): string {
+  const a = Math.abs(n);
+  if (a >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+  if (a >= 1e3) return "$" + (n / 1e3).toFixed(1) + "K";
+  return "$" + Math.round(n).toLocaleString();
+}
+
 /**
- * Cumulative buyback-and-burn over time — SLVR removed (left axis) and ETH spent
- * (right axis), both monotonically rising. Reads the `buyback_totals` series, whose
- * value = cumulative SLVR burned and value2 = cumulative ETH spent.
+ * Cumulative buyback-and-burn over time — SLVR removed (left axis) and USD spent
+ * (right axis). The `buyback_totals` series stores cumulative ETH in value2; we
+ * convert it to USD at the current ETH price (consistent with the "at current ETH"
+ * figures on the cards). Falls back to ETH if no price is available.
  */
-export default function BuybackChartSection() {
+export default function BuybackChartSection({ ethUsd }: { ethUsd?: number | null }) {
   const [range, setRange] = useState<RangeKey>("all");
   const { data, isLoading } = useHistory("buyback_totals", range);
+
+  const showUsd = ethUsd != null && ethUsd > 0;
+
+  const chartData = useMemo(() => {
+    if (!data?.rows || !showUsd) return data;
+    return {
+      ...data,
+      rows: data.rows.map((r) => ({
+        ...r,
+        v2: r.v2 != null ? r.v2 * (ethUsd as number) : null,
+      })),
+    };
+  }, [data, ethUsd, showUsd]);
 
   return (
     <section className="mb-10">
@@ -27,7 +48,7 @@ export default function BuybackChartSection() {
         >
           Cumulative buybacks{" "}
           <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--color-silver-400)" }}>
-            · SLVR burned &amp; ETH spent
+            · SLVR burned &amp; {showUsd ? "USD" : "ETH"} spent
           </span>
         </h2>
         <TimeRangeSelector value={range} onChange={setRange} />
@@ -42,14 +63,14 @@ export default function BuybackChartSection() {
         }}
       >
         <LineChartSvg
-          data={data}
+          data={chartData}
           isLoading={isLoading}
           series={[
             { key: "v", color: "#fbbf24", label: "SLVR burned", axis: "left" },
-            { key: "v2", color: "#22d3ee", label: "ETH spent", axis: "right" },
+            { key: "v2", color: "#22d3ee", label: showUsd ? "USD spent" : "ETH spent", axis: "right" },
           ]}
           format={(n) => (n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(2)) + " SLVR"}
-          rightFormat={(n) => n.toFixed(n >= 10 ? 2 : 4) + " ETH"}
+          rightFormat={showUsd ? usdAxis : (n) => n.toFixed(n >= 10 ? 2 : 4) + " ETH"}
         />
       </div>
     </section>

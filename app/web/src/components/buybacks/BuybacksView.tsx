@@ -30,6 +30,11 @@ const slvr = (n: number, d = 2) => `${fmt(n, d)} SLVR`;
 const eth = (n: number, d = 4) => `${n.toFixed(d)} ETH`;
 const usd = (n: number | null | undefined) =>
   n == null ? "—" : `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n)}`;
+/** USD with 2 decimals — for small per-buyback amounts (~$6). */
+const usd2 = (n: number | null | undefined) =>
+  n == null
+    ? "—"
+    : `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
 
 function relTime(ms: number): string {
   const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
@@ -41,31 +46,43 @@ function relTime(ms: number): string {
   return `${Math.round(h / 24)}d ago`;
 }
 
-const recentColumns: Column<BuybackRecentEvent>[] = [
-  {
-    key: "when",
-    header: "When",
-    render: (e) => (
-      <span style={{ color: "var(--color-silver-300)" }}>{relTime(e.approxTs)}</span>
-    ),
-  },
-  {
-    key: "eth",
-    header: "ETH spent",
-    align: "right",
-    mono: true,
-    render: (e) => e.eth.toFixed(5),
-  },
-  {
-    key: "slvr",
-    header: "SLVR burned",
-    align: "right",
-    mono: true,
-    render: (e) => (
-      <span style={{ color: "var(--color-apr)" }}>{e.slvr.toFixed(4)}</span>
-    ),
-  },
-];
+/** Recent-buybacks columns. Leads with USD (ETH shown as subtext) when a price is known. */
+function makeRecentColumns(ethUsd: number | null): Column<BuybackRecentEvent>[] {
+  const showUsd = ethUsd != null && ethUsd > 0;
+  return [
+    {
+      key: "when",
+      header: "When",
+      render: (e) => (
+        <span style={{ color: "var(--color-silver-300)" }}>{relTime(e.approxTs)}</span>
+      ),
+    },
+    {
+      key: "spent",
+      header: showUsd ? "USD spent" : "ETH spent",
+      align: "right",
+      mono: true,
+      render: (e) =>
+        showUsd ? (
+          <div>
+            <div style={{ color: "var(--color-silver-100)" }}>{usd2(e.eth * (ethUsd as number))}</div>
+            <div style={{ fontSize: "0.6875rem", color: "var(--color-silver-500)" }}>
+              {e.eth.toFixed(5)} ETH
+            </div>
+          </div>
+        ) : (
+          e.eth.toFixed(5)
+        ),
+    },
+    {
+      key: "slvr",
+      header: "SLVR burned",
+      align: "right",
+      mono: true,
+      render: (e) => <span style={{ color: "var(--color-apr)" }}>{e.slvr.toFixed(4)}</span>,
+    },
+  ];
+}
 
 export default function BuybacksView() {
   const { data, error, isLoading } = useSWR<BuybackData>("/api/buybacks", fetcher, {
@@ -74,6 +91,8 @@ export default function BuybacksView() {
   });
   const failed = !!error;
   const loading = isLoading && !data;
+  const ethUsd = data?.ethUsd ?? null;
+  const recentColumns = makeRecentColumns(ethUsd);
 
   return (
     <>
@@ -90,8 +109,14 @@ export default function BuybacksView() {
         />
         <StatCard
           label="TOTAL SPENT"
-          primary={data ? eth(data.cumulativeEth, 3) : "—"}
-          secondary={data ? `${usd(data.cumulativeUsd)} at current ETH` : undefined}
+          primary={
+            data
+              ? data.cumulativeUsd != null
+                ? usd(data.cumulativeUsd)
+                : eth(data.cumulativeEth, 3)
+              : "—"
+          }
+          secondary={data ? `${eth(data.cumulativeEth, 3)} at current ETH` : undefined}
           colorVar="--color-price"
           loading={loading}
         />
@@ -99,7 +124,7 @@ export default function BuybacksView() {
           label="DAILY BUYBACK (24H)"
           primary={data ? `${slvr(data.dailySlvr, 1)}` : "—"}
           secondary={
-            data ? `≈ ${eth(data.dailyEth, 3)} · ${usd(data.dailyUsd)} per day` : undefined
+            data ? `≈ ${usd(data.dailyUsd)} · ${eth(data.dailyEth, 2)} per day` : undefined
           }
           colorVar="--color-staking"
           loading={loading}
@@ -120,7 +145,7 @@ export default function BuybacksView() {
       </div>
 
       {/* Cumulative chart */}
-      <BuybackChartSection />
+      <BuybackChartSection ethUsd={ethUsd} />
 
       {/* Recent buybacks */}
       <Panel
