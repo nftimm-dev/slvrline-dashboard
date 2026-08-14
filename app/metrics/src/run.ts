@@ -377,6 +377,20 @@ export async function computeAndWrite(): Promise<void> {
   // ---- 5. total_staked_slvr ----
   try {
     const staking = await computeStaking(headBlock);
+    // Guard against degraded reads that would spike the chart down:
+    //  - ve_balance_fallback: on-chain enumeration failed, so permanent locks (~90%
+    //    of the total) are missing and `value` collapses to just the time-locked
+    //    balance (this is the ~2k dip we saw).
+    //  - totalLockedRaw == 0: nothing read at all.
+    // In both cases skip the write and keep the last good snapshot — far more
+    // accurate than persisting a partial value.
+    if (staking.source === "ve_balance_fallback" || staking.totalLockedRaw <= 0n) {
+      console.warn(
+        `[metrics][STAKING] Skipping snapshot: degraded read ` +
+        `(source=${staking.source}, totalLockedRaw=${staking.totalLockedRaw})`
+      );
+      throw new Error("staking read degraded — skipping snapshot");
+    }
     // Build display-oriented rollups from the active-lock list so /api/staking can
     // serve the page instantly from the DB (no on-request chain enumeration).
     const topLockers = buildTopLockers(staking.activeLocks);

@@ -12,6 +12,26 @@ import type { RangeKey } from "@/hooks/useHistory";
  * rewards ÷ exact per-position staked value. The pool is young, so expect a
  * short, jagged series.
  */
+// Null non-positive values and isolated upward spikes (> 2.5× the local rolling
+// median, robust to a single outlier) so reward-burst blips don't ruin the axis.
+function cleanApr(values: (number | null)[]): (number | null)[] {
+  const WINDOW = 12; // points on each side (~2h at 5-min cadence)
+  const SPIKE_ABOVE = 2.5; // multiple of local median
+  return values.map((v, i) => {
+    if (v == null || v <= 0) return null;
+    const neighbours: number[] = [];
+    for (let j = i - WINDOW; j <= i + WINDOW; j++) {
+      if (j === i) continue;
+      const n = values[j];
+      if (n != null && n > 0) neighbours.push(n);
+    }
+    if (neighbours.length < 4) return v;
+    neighbours.sort((a, b) => a - b);
+    const median = neighbours[Math.floor(neighbours.length / 2)];
+    return v > median * SPIKE_ABOVE ? null : v;
+  });
+}
+
 export default function LpStakingApyChartSection({
   dataKey = "v",
   title = "LP Staking APR",
@@ -26,16 +46,15 @@ export default function LpStakingApyChartSection({
   const [range, setRange] = useState<RangeKey>("all");
   const { data, isLoading } = useHistory("lp_staking_apr", range);
 
-  // Skip non-positive points (e.g. a cohort with no positions yet → APR 0) so the
-  // line doesn't dip to zero before that range type existed.
+  // Clean the cohort series before charting:
+  //  - drop non-positive points (a cohort with no positions yet → APR 0), and
+  //  - drop upward spikes: APR annualizes a trailing-24h reward stream, so a single
+  //    large sell briefly inflates it many-fold (we saw 30k%+ blips). A point far
+  //    above its local rolling median is a burst artifact, not a real rate.
   const chartData = useMemo(() => {
     if (!data?.rows) return data;
-    return {
-      ...data,
-      rows: data.rows.map((r) =>
-        r[dataKey] != null && (r[dataKey] as number) <= 0 ? { ...r, [dataKey]: null } : r
-      ),
-    };
+    const cleaned = cleanApr(data.rows.map((r) => r[dataKey] as number | null));
+    return { ...data, rows: data.rows.map((r, i) => ({ ...r, [dataKey]: cleaned[i] })) };
   }, [data, dataKey]);
 
   return (
