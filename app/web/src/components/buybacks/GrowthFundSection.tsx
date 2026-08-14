@@ -75,7 +75,7 @@ export default function GrowthFundSection() {
         on the open market — which it <em>keeps</em> (and re-stakes), compounding the loop.
       </p>
 
-      <div className="grid gap-3 mb-8 grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 mb-8 grid-cols-2 lg:grid-cols-5">
         <StatCard
           label="① SLVR EARNED / ROUNDS"
           primary={data ? slvr(data.slvrEarned, 0) : "—"}
@@ -84,28 +84,33 @@ export default function GrowthFundSection() {
           loading={loading}
         />
         <StatCard
-          label="② ETH DEPLOYED"
-          primary={data ? usd(data.usdDeployed) : "—"}
-          secondary={data ? `${eth(data.ethDeployed, 2)} from staking rewards` : undefined}
+          label="② ETH READY TO DEPLOY"
+          primary={data ? usd(data.ethWaitingUsd) : "—"}
+          secondary={data ? `${eth(data.ethWaiting, 1)} · war chest, waiting to buy back` : undefined}
           colorVar="--color-price"
           loading={loading}
         />
         <StatCard
-          label="③ SLVR BOUGHT BACK"
+          label="③ ETH DEPLOYED"
+          primary={data ? usd(data.usdDeployed) : "—"}
+          secondary={data ? `${eth(data.ethDeployed, 2)} spent buying back` : undefined}
+          colorVar="--color-supply"
+          loading={loading}
+        />
+        <StatCard
+          label="DEPLOYED (24H)"
+          primary={data ? usd(data.deployed24hUsd) : "—"}
+          secondary={data ? `${eth(data.deployed24hEth, 2)} · trailing 24h` : undefined}
+          colorVar="--color-accent"
+          loading={loading}
+        />
+        <StatCard
+          label="④ SLVR BOUGHT BACK"
           primary={data ? slvr(data.slvrBought, 1) : "—"}
           secondary={
             data ? `${usd(data.holdingsUsd)} value · ${data.buyCount.toLocaleString()} buys` : undefined
           }
           colorVar="--color-staking"
-          loading={loading}
-        />
-        <StatCard
-          label="CADENCE"
-          primary={data?.avgIntervalSec != null ? `~${Math.round(data.avgIntervalSec / 60)}m` : "—"}
-          secondary={
-            data?.buysPerDay != null ? `~${Math.round(data.buysPerDay).toLocaleString()} buybacks / day` : "between buybacks"
-          }
-          colorVar="--color-supply"
           loading={loading}
         />
       </div>

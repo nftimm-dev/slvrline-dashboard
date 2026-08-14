@@ -12,6 +12,7 @@ import { readDbCache } from "@/lib/dbCache";
 import {
   getGrowthFundData,
   getGrowthFundRecent,
+  getEthWaiting,
   type GrowthFundData,
 } from "@/lib/growthFund";
 
@@ -21,15 +22,23 @@ export const maxDuration = 60;
 export async function GET() {
   try {
     const cached = await readDbCache<GrowthFundData>("growthfund");
-    // Full totals/series from cache (fast); recompute live only on a cold cache.
-    const [full, recent] = await Promise.all([
+    // Full totals/series from cache (fast); the recent feed + the ETH war chest
+    // are fetched live (both change faster than the 20-min cache).
+    const [full, recent, waiting] = await Promise.all([
       cached ? Promise.resolve(cached.data) : getGrowthFundData(),
       getGrowthFundRecent().catch(() => null),
+      getEthWaiting().catch(() => null),
     ]);
 
     const body: GrowthFundData = {
       ...full,
       recent: recent ?? full.recent ?? [],
+      ...(waiting
+        ? {
+            ethWaiting: waiting.ethWaiting,
+            ethWaitingUsd: full.ethUsd ? waiting.ethWaiting * full.ethUsd : null,
+          }
+        : {}),
       updatedAt: cached?.updatedAt ?? full.updatedAt,
     };
 

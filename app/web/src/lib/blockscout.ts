@@ -186,6 +186,7 @@ export async function getAddressNativeSpent(
   maxPages = 20
 ): Promise<{
   spentRaw: bigint;
+  spent24hRaw: bigint;
   txCount: number;
   firstTs: string | null;
   lastTs: string | null;
@@ -196,20 +197,24 @@ export async function getAddressNativeSpent(
     `/addresses/${address}/transactions?filter=from`,
     maxPages
   );
+  const cutoff = Date.now() - 24 * 3600 * 1000;
   let spentRaw = 0n;
+  let spent24hRaw = 0n;
   let txCount = 0;
   let firstTs: string | null = null;
   let lastTs: string | null = null;
   const valueByHash: Record<string, string> = {};
   for (const it of items) {
     if ((it.from?.hash ?? "").toLowerCase() !== a) continue;
-    spentRaw += BigInt(it.value ?? "0");
+    const v = BigInt(it.value ?? "0");
+    spentRaw += v;
     txCount++;
     if (it.hash) valueByHash[it.hash.toLowerCase()] = it.value ?? "0";
     if (it.timestamp) {
       lastTs = lastTs ?? it.timestamp; // items are newest-first
       firstTs = it.timestamp;
+      if (Date.parse(it.timestamp) >= cutoff) spent24hRaw += v;
     }
   }
-  return { spentRaw, txCount, firstTs, lastTs, valueByHash };
+  return { spentRaw, spent24hRaw, txCount, firstTs, lastTs, valueByHash };
 }
