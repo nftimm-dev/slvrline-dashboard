@@ -16,7 +16,8 @@ function dropDips(values: (number | null)[]): (number | null)[] {
   const WINDOW = 5; // points on each side
   const DROP_BELOW = 0.6; // fraction of local median
   return values.map((v, i) => {
-    if (v == null || v <= 0) return v;
+    if (v == null) return null;
+    if (v <= 0) return null; // exact-zero snapshot = failed read, never a real value
     const neighbours: number[] = [];
     for (let j = i - WINDOW; j <= i + WINDOW; j++) {
       if (j === i) continue;
