@@ -8,44 +8,51 @@
  *
  * Data comes from Blockscout (the raw RPC eth_getLogs silently under-counts this
  * wallet's dense/wide transfer history), the on-chain round counter, and the market
- * price for USD. All read-only, cached 5 min.
+ * price. The FULL history (totals + series) is slow to page (~30s), so it is
+ * precomputed into metrics.cache by the cron; the recent-buys feed is fetched live
+ * from the first page (fast).
  */
-import { withCache } from "./cache";
 import { SLVR_TOKEN_ADDRESS } from "./labels";
 import { ethCall, decodeUint256 } from "./rpc";
-import { getAddressTokenTransfers, getAddressNativeSpent } from "./blockscout";
+import {
+  getAddressTokenTransfers,
+  getAddressNativeSpent,
+  type AddressTransfer,
+} from "./blockscout";
 import { getMarketData } from "./dexscreener";
 
-// The Growth Fund's on-market buyer wallet.
 export const GROWTH_FUND_BUYER = "0xec8c0A41F4F8ff291E111DB988D266BBF3F4eE3a";
 const LOTTERY_V2 = "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71";
 const CURRENT_ROUND_SEL = "0x9cbe5efd"; // currentRoundId()
 const SLVR_PER_ROUND_TO_GF = 0.04; // 4% of the 1.12 SLVR minted per round
-const CACHE_TTL = 300;
 
 export interface GrowthFundPoint {
   t: string;
   bought: number;
 }
 
+/** One on-market buy (SLVR received, ETH paid). */
+export interface GrowthFundRecent {
+  ts: string;
+  slvr: number;
+  eth: number;
+}
+
 export interface GrowthFundData {
-  /** Cumulative SLVR bought back on-market and held (buyer never sells). */
   slvrBought: number;
   buyCount: number;
-  /** Cumulative ETH spent buying back (funded by the fund's staking rewards). */
   ethDeployed: number;
   usdDeployed: number | null;
-  /** SLVR earned from rounds = 0.04 × resolved rounds (the fund's minted income). */
   slvrEarned: number;
   roundId: number | null;
   avgIntervalSec: number | null;
   buysPerDay: number | null;
-  /** Market SLVR/USD — USD value of the accumulated holdings. */
   slvrUsd: number | null;
   ethUsd: number | null;
   holdingsUsd: number | null;
-  /** Cumulative-bought curve over time (downsampled). */
   series: GrowthFundPoint[];
+  /** Most-recent buys (newest first). Fresh when served live; may be stale from cache. */
+  recent: GrowthFundRecent[];
   updatedAt: string;
 }
 
@@ -57,7 +64,24 @@ function downsample<T>(arr: T[], max: number): T[] {
   return out;
 }
 
-async function fetchGrowthFund(): Promise<GrowthFundData> {
+function buildRecent(
+  transfers: AddressTransfer[],
+  valueByHash: Record<string, string>
+): GrowthFundRecent[] {
+  const buyerLc = GROWTH_FUND_BUYER.toLowerCase();
+  return transfers
+    .filter((t) => t.to === buyerLc && t.valueRaw > 0n)
+    .sort((a, b) => b.block - a.block)
+    .slice(0, 20)
+    .map((t) => ({
+      ts: t.timestamp ?? "",
+      slvr: Number(t.valueRaw) / 1e18,
+      eth: Number(BigInt(valueByHash[t.txHash] ?? "0")) / 1e18,
+    }));
+}
+
+/** FULL compute — pages the entire history. Slow (~30s); precomputed by the cron. */
+export async function getGrowthFundData(): Promise<GrowthFundData> {
   const [transfers, spent, roundHex, market] = await Promise.all([
     getAddressTokenTransfers(GROWTH_FUND_BUYER, SLVR_TOKEN_ADDRESS),
     getAddressNativeSpent(GROWTH_FUND_BUYER),
@@ -78,9 +102,7 @@ async function fetchGrowthFund(): Promise<GrowthFundData> {
   }
   const series = downsample(rawPoints, 180);
   const slvrBought = Number(cum) / 1e18;
-  const buyCount = buys.length;
 
-  // Cadence from the buy timestamps.
   let avgIntervalSec: number | null = null;
   let buysPerDay: number | null = null;
   const firstTs = buys[0]?.timestamp;
@@ -99,7 +121,7 @@ async function fetchGrowthFund(): Promise<GrowthFundData> {
 
   return {
     slvrBought,
-    buyCount,
+    buyCount: buys.length,
     ethDeployed,
     usdDeployed: ethUsd ? ethDeployed * ethUsd : null,
     slvrEarned,
@@ -110,10 +132,16 @@ async function fetchGrowthFund(): Promise<GrowthFundData> {
     ethUsd,
     holdingsUsd: slvrUsd ? slvrBought * slvrUsd : null,
     series,
+    recent: buildRecent(transfers, spent.valueByHash),
     updatedAt: new Date().toISOString(),
   };
 }
 
-export async function getGrowthFundData(): Promise<GrowthFundData> {
-  return withCache("growthfund:data", CACHE_TTL, fetchGrowthFund);
+/** FAST recent-buys feed — first page only (~2 Blockscout calls). Served live. */
+export async function getGrowthFundRecent(): Promise<GrowthFundRecent[]> {
+  const [transfers, spent] = await Promise.all([
+    getAddressTokenTransfers(GROWTH_FUND_BUYER, SLVR_TOKEN_ADDRESS, 1),
+    getAddressNativeSpent(GROWTH_FUND_BUYER, 1),
+  ]);
+  return buildRecent(transfers, spent.valueByHash);
 }

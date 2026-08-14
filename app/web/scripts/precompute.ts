@@ -11,6 +11,7 @@
  */
 import { getMiningUnclaimed } from "@/lib/miningUnclaimed";
 import { getEconomicHoldersData } from "@/lib/holders";
+import { getGrowthFundData } from "@/lib/growthFund";
 import { writeDbCache } from "@/lib/dbCache";
 import { getDb } from "@/lib/db";
 
@@ -19,6 +20,7 @@ type Task = { key: string; run: () => Promise<unknown> };
 const TASKS: Task[] = [
   { key: "mining_unclaimed", run: getMiningUnclaimed },
   { key: "holders_economic", run: getEconomicHoldersData },
+  { key: "growthfund", run: getGrowthFundData },
 ];
 
 async function main() {

@@ -135,6 +135,8 @@ interface BsTransferItem {
   block_number?: number;
   block?: number;
   timestamp?: string;
+  transaction_hash?: string;
+  tx_hash?: string;
 }
 
 export interface AddressTransfer {
@@ -143,15 +145,18 @@ export interface AddressTransfer {
   valueRaw: bigint;
   block: number;
   timestamp: string | null;
+  txHash: string;
 }
 
-/** All ERC-20 transfers of `tokenAddr` touching `address` (paginated, reliable). */
+/** ERC-20 transfers of `tokenAddr` touching `address` (paginated, reliable). */
 export async function getAddressTokenTransfers(
   address: string,
-  tokenAddr: string
+  tokenAddr: string,
+  maxPages = 20
 ): Promise<AddressTransfer[]> {
   const items = await fetchAllPages<BsTransferItem>(
-    `/addresses/${address}/token-transfers?type=ERC-20&token=${tokenAddr}`
+    `/addresses/${address}/token-transfers?type=ERC-20&token=${tokenAddr}`,
+    maxPages
   );
   return items
     .map((it) => ({
@@ -160,6 +165,7 @@ export async function getAddressTokenTransfers(
       valueRaw: BigInt(it.total?.value ?? it.value ?? "0"),
       block: it.block_number ?? it.block ?? 0,
       timestamp: it.timestamp ?? null,
+      txHash: (it.transaction_hash ?? it.tx_hash ?? "").toLowerCase(),
     }))
     .filter((t) => t.from || t.to);
 }
@@ -168,28 +174,42 @@ interface BsTxItem {
   from?: { hash?: string };
   value?: string;
   timestamp?: string;
+  hash?: string;
 }
 
-/** Sum of native-coin (ETH) value sent BY `address` across all its txs (paginated). */
+/**
+ * Native-coin (ETH) value sent BY `address` (paginated). Returns the sum plus a
+ * per-tx value map (txHash → wei), used to price each individual buy.
+ */
 export async function getAddressNativeSpent(
-  address: string
-): Promise<{ spentRaw: bigint; txCount: number; firstTs: string | null; lastTs: string | null }> {
+  address: string,
+  maxPages = 20
+): Promise<{
+  spentRaw: bigint;
+  txCount: number;
+  firstTs: string | null;
+  lastTs: string | null;
+  valueByHash: Record<string, string>;
+}> {
   const a = address.toLowerCase();
   const items = await fetchAllPages<BsTxItem>(
-    `/addresses/${address}/transactions?filter=from`
+    `/addresses/${address}/transactions?filter=from`,
+    maxPages
   );
   let spentRaw = 0n;
   let txCount = 0;
   let firstTs: string | null = null;
   let lastTs: string | null = null;
+  const valueByHash: Record<string, string> = {};
   for (const it of items) {
     if ((it.from?.hash ?? "").toLowerCase() !== a) continue;
     spentRaw += BigInt(it.value ?? "0");
     txCount++;
+    if (it.hash) valueByHash[it.hash.toLowerCase()] = it.value ?? "0";
     if (it.timestamp) {
       lastTs = lastTs ?? it.timestamp; // items are newest-first
       firstTs = it.timestamp;
     }
   }
-  return { spentRaw, txCount, firstTs, lastTs };
+  return { spentRaw, txCount, firstTs, lastTs, valueByHash };
 }

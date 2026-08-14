@@ -3,13 +3,11 @@
 import type { CSSProperties } from "react";
 import useSWR from "swr";
 import StatCard from "@/components/analytics/StatCard";
-import Panel from "@/components/analytics/Panel";
-import DataTable, { type Column } from "@/components/analytics/DataTable";
-import StateMessage from "@/components/analytics/StateMessage";
 import BuybackChartSection from "@/components/charts/BuybackChartSection";
 import GrowthFundSection from "@/components/buybacks/GrowthFundSection";
+import UnifiedRecentBuybacks from "@/components/buybacks/UnifiedRecentBuybacks";
 import { getBlockscoutUrl } from "@/lib/labels";
-import type { BuybackData, BuybackRecentEvent } from "@/lib/buybacks";
+import type { BuybackData } from "@/lib/buybacks";
 
 const KEEPER = "0x7a58D6f46E92b02618EdB4f5ff3b72f7E64077Ad";
 const EXECUTOR = "0xacdd8E9bad637798dBdb23a59cfa314743668bA4";
@@ -31,73 +29,18 @@ const slvr = (n: number, d = 2) => `${fmt(n, d)} SLVR`;
 const eth = (n: number, d = 4) => `${n.toFixed(d)} ETH`;
 const usd = (n: number | null | undefined) =>
   n == null ? "—" : `$${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n)}`;
-/** USD with 2 decimals — for small per-buyback amounts (~$6). */
-const usd2 = (n: number | null | undefined) =>
-  n == null
-    ? "—"
-    : `$${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)}`;
-
-function relTime(ms: number): string {
-  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 48) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
-}
-
-/** Recent-buybacks columns. Leads with USD (ETH shown as subtext) when a price is known. */
-function makeRecentColumns(ethUsd: number | null): Column<BuybackRecentEvent>[] {
-  const showUsd = ethUsd != null && ethUsd > 0;
-  return [
-    {
-      key: "when",
-      header: "When",
-      render: (e) => (
-        <span style={{ color: "var(--color-silver-300)" }}>{relTime(e.approxTs)}</span>
-      ),
-    },
-    {
-      key: "spent",
-      header: showUsd ? "USD spent" : "ETH spent",
-      align: "right",
-      mono: true,
-      render: (e) =>
-        showUsd ? (
-          <div>
-            <div style={{ color: "var(--color-silver-100)" }}>{usd2(e.eth * (ethUsd as number))}</div>
-            <div style={{ fontSize: "0.6875rem", color: "var(--color-silver-500)" }}>
-              {e.eth.toFixed(5)} ETH
-            </div>
-          </div>
-        ) : (
-          e.eth.toFixed(5)
-        ),
-    },
-    {
-      key: "slvr",
-      header: "SLVR burned",
-      align: "right",
-      mono: true,
-      render: (e) => <span style={{ color: "var(--color-apr)" }}>{e.slvr.toFixed(4)}</span>,
-    },
-  ];
-}
 
 export default function BuybacksView() {
-  const { data, error, isLoading } = useSWR<BuybackData>("/api/buybacks", fetcher, {
+  const { data, isLoading } = useSWR<BuybackData>("/api/buybacks", fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: false,
   });
-  const failed = !!error;
   const loading = isLoading && !data;
   const ethUsd = data?.ethUsd ?? null;
-  const recentColumns = makeRecentColumns(ethUsd);
 
   return (
     <>
-      {/* Headline stats */}
+      {/* Protocol buyback-and-burn — headline stats */}
       <div className="grid gap-3 mb-8 grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="BOUGHT BACK & BURNED"
@@ -132,9 +75,7 @@ export default function BuybacksView() {
         />
         <StatCard
           label="CADENCE"
-          primary={
-            data?.avgIntervalSec != null ? `~${Math.round(data.avgIntervalSec)}s` : "—"
-          }
+          primary={data?.avgIntervalSec != null ? `~${Math.round(data.avgIntervalSec)}s` : "—"}
           secondary={
             data?.buybacksPerDay != null
               ? `~${Math.round(data.buybacksPerDay).toLocaleString()} buybacks / day`
@@ -148,42 +89,17 @@ export default function BuybacksView() {
       {/* Cumulative chart */}
       <BuybackChartSection ethUsd={ethUsd} />
 
-      {/* Recent buybacks */}
-      <Panel
-        title="Recent buybacks"
-        note="latest on-chain BuybackBurned events · newest first"
-        flush
-      >
-        {failed ? (
-          <StateMessage
-            tone="error"
-            title="Buyback data unavailable"
-            detail="Could not load the latest buyback snapshot. This panel refreshes automatically."
-            height={200}
-          />
-        ) : (
-          <DataTable<BuybackRecentEvent>
-            columns={recentColumns}
-            rows={data?.recent ?? []}
-            rowKey={(e, i) => `${e.block}-${i}`}
-            loading={loading}
-            skeletonRows={8}
-            emptyMessage="No buybacks recorded yet"
-          />
-        )}
-      </Panel>
-
       {/* Methodology note */}
       <p
         style={{
           fontSize: "0.75rem",
           color: "var(--color-silver-400)",
-          marginTop: 16,
+          marginTop: 4,
           lineHeight: 1.6,
           maxWidth: "72ch",
         }}
       >
-        <strong style={{ color: "var(--color-silver-300)" }}>How it works.</strong> A share of
+        <strong style={{ color: "var(--color-silver-300)" }}>How the burn works.</strong> A share of
         mining revenue accumulates in the{" "}
         <a href={getBlockscoutUrl(KEEPER)} target="_blank" rel="noopener noreferrer" style={linkStyle}>
           buyback keeper
@@ -208,6 +124,9 @@ export default function BuybacksView() {
 
       {/* Growth Fund flywheel — separate accumulation stream (earns → stakes → buys back) */}
       <GrowthFundSection />
+
+      {/* Unified recent-buybacks feed — both streams, tagged by type */}
+      <UnifiedRecentBuybacks />
     </>
   );
 }

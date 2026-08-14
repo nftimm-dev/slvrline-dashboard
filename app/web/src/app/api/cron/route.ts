@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { computeAndWrite } from "@slvrline/metrics/run";
 import { getMiningUnclaimed } from "@/lib/miningUnclaimed";
 import { getEconomicHoldersData } from "@/lib/holders";
+import { getGrowthFundData } from "@/lib/growthFund";
 import { writeDbCache } from "@/lib/dbCache";
 
 /**
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
     const tasks: Array<[string, () => Promise<unknown>]> = [
       ["mining_unclaimed", getMiningUnclaimed],
       ["holders_economic", getEconomicHoldersData],
+      ["growthfund", getGrowthFundData],
     ];
     for (const [key, fn] of tasks) {
       try {
