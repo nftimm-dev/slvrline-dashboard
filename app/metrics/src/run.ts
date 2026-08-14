@@ -24,6 +24,7 @@ import { computeRunway } from "./formulas/runway";
 import { computeStaking, type VeLock } from "./formulas/staking";
 import { computeStakingApy } from "./formulas/stakingApy";
 import { computeLpStakingApy } from "./formulas/lpStakingApy";
+import { computeBuybacks } from "./formulas/buybacks";
 import { fetchEthUsdNow } from "./ethUsd";
 import { computeLotteryRoundState } from "./formulas/lottery";
 import { getHead } from "./block-resolver";
@@ -226,11 +227,17 @@ export async function computeAndWrite(): Promise<void> {
         total_supply_raw: supplyResult.totalSupplyRaw.toString(),
         excluded_raw: supplyResult.excludedRaw.toString(),
         circulating_raw: supplyResult.circulatingRaw.toString(),
+        // Buyback graveyard: permanently-parked SLVR, subtracted from circulating on top
+        // of treasury. The token's getCirculatingSupply() does NOT exclude it, so the
+        // cross-check compares against the treasury-only (ex-graveyard) figure.
+        circulating_ex_graveyard_raw: supplyResult.circulatingExGraveyardRaw.toString(),
+        graveyard_raw: supplyResult.graveyardRaw.toString(),
+        graveyard_human: supplyResult.graveyardHuman,
         on_chain_cs_raw: supplyResult.onChainCirculatingRaw?.toString() ?? null,
         on_chain_cs_match: supplyResult.onChainCirculatingRaw !== null
-          ? supplyResult.onChainCirculatingRaw === supplyResult.circulatingRaw
+          ? supplyResult.onChainCirculatingRaw === supplyResult.circulatingExGraveyardRaw
             ? "exact"
-            : `diff:${(Number(supplyResult.circulatingRaw - supplyResult.onChainCirculatingRaw) / 1e18).toFixed(6)}`
+            : `diff:${(Number(supplyResult.circulatingExGraveyardRaw - supplyResult.onChainCirculatingRaw) / 1e18).toFixed(6)}`
           : "unavailable",
         excluded_balances: Object.fromEntries(
           Object.entries(supplyResult.excludedBalances).map(([k, v]) => [k, v.toString()])
@@ -254,11 +261,62 @@ export async function computeAndWrite(): Promise<void> {
     console.log(
       `[metrics] circulating_supply: ${supplyResult.circulatingHuman.toFixed(4)} SLVR ` +
       `(total: ${supplyResult.totalHuman.toFixed(4)}, ` +
+      `graveyard: ${supplyResult.graveyardHuman.toFixed(2)}, ` +
       `emitted: ${supplyResult.emittedHuman.toFixed(1)} = ${(supplyResult.emittedPctOfCap * 100).toFixed(2)}% of cap, ` +
       `burned: ${supplyResult.cumulativeBurnedHuman.toFixed(1)})`
     );
   } catch (e) {
     console.error("[metrics][SUPPLY] Error:", e);
+  }
+
+  // ---- buyback_totals (buy-and-burn: ETH → SLVR → graveyard, every ~80s) ----
+  try {
+    const bb = await computeBuybacks(headBlock);
+    const ethUsd = await fetchEthUsdNow().catch(() => 0);
+    const usd = (eth: number): number | null =>
+      ethUsd > 0 ? eth * ethUsd : null;
+    await writeSnapshot({
+      metricName: "buyback_totals",
+      value: bb.cumulativeSlvrHuman, // cumulative SLVR bought back & burned
+      value2: bb.cumulativeEthHuman, // cumulative ETH spent
+      value3: bb.dailySlvrHuman, // current daily SLVR-burn rate (≤24h extrapolated)
+      metadata: {
+        cumulative_slvr_burned: bb.cumulativeSlvrHuman,
+        cumulative_eth_spent: bb.cumulativeEthHuman,
+        cumulative_usd_spent: usd(bb.cumulativeEthHuman),
+        buyback_count: bb.buybackCount,
+        daily_slvr: bb.dailySlvrHuman,
+        daily_eth: bb.dailyEthHuman,
+        daily_usd: usd(bb.dailyEthHuman),
+        window_count: bb.windowCount,
+        window_hours: bb.windowSeconds / 3600,
+        avg_interval_sec: bb.avgIntervalSeconds,
+        buybacks_per_day: bb.buybacksPerDay,
+        eth_usd: ethUsd || null,
+        graveyard_balance_slvr: Number(bb.graveyardBalanceRaw) / 1e18,
+        graveyard_match: bb.graveyardMatch,
+        first_block: bb.firstBlock?.toString() ?? null,
+        last_block: bb.lastBlock?.toString() ?? null,
+        // Last ≤20 buybacks (newest first) for the recent-activity table. Time is
+        // derived client-side from each block vs this snapshot's block/timestamp.
+        recent: bb.recent.map((e) => ({
+          block: e.block.toString(),
+          eth: Number(e.ethInRaw) / 1e18,
+          slvr: Number(e.slvrRaw) / 1e18,
+        })),
+        source: "onchain_buyback_burned_event",
+      },
+      snapshotAt: now,
+      blockNumber: headBlock,
+    });
+    console.log(
+      `[metrics] buyback_totals: ${bb.cumulativeSlvrHuman.toFixed(2)} SLVR burned / ` +
+      `${bb.cumulativeEthHuman.toFixed(4)} ETH spent over ${bb.buybackCount} buybacks ` +
+      `| daily ~${bb.dailySlvrHuman.toFixed(1)} SLVR (~${bb.dailyEthHuman.toFixed(3)} ETH) ` +
+      `| graveyard cross-check ${bb.graveyardMatch ? "OK" : "DIFF"}`
+    );
+  } catch (e) {
+    console.error("[metrics][BUYBACK] Error:", e);
   }
 
   // ---- 3. emission_rate_30d + 4. runway_months ----

@@ -14,7 +14,8 @@ export type MetricName =
   | "runway_months"
   | "total_staked_slvr"
   | "lottery_round_state"
-  | "emission_rate_30d";
+  | "emission_rate_30d"
+  | "buyback_totals";
 
 export interface HistoryRow {
   t: string;

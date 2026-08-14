@@ -17,6 +17,7 @@ const NAV_LINKS: NavLink[] = [
   { href: "/staking", label: "Staking" },
   { href: "/holders", label: "Holders" },
   { href: "/markets", label: "Markets" },
+  { href: "/buybacks", label: "Buybacks" },
   { href: "/mining", label: "Mining" },
   { href: "/methodology", label: "Methodology" },
 ];

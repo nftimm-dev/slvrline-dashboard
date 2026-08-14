@@ -60,6 +60,11 @@ const CONTRACT_LABELS: Record<string, string> = {
   // Key wallets
   "0x11111972fe1b7e52d36609bcaf8702c65b025b46": "Protocol Deployer",
   "0x4444479b89b684e79392924b3a70be03733190de": "Growth Recipient",
+
+  // Buyback-and-burn
+  "0x7a58d6f46e92b02618edb4f5ff3b72f7e64077ad": "Buyback Keeper",
+  "0xacdd8e9bad637798dbdb23a59cfa314743668ba4": "Buyback Executor",
+  "0xf32fc533511783b2707a08eea22a9f4e59996100": "SLVR Graveyard",
 };
 
 /**

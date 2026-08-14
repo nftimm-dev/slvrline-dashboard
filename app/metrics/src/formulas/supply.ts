@@ -25,6 +25,7 @@ import {
   SLVR_CAP,
   EXCLUDED_ADDRESSES,
   AUDIT_ADDRESSES,
+  SLVR_GRAVEYARD,
 } from "../constants";
 import { archivalCall, decodeUint256 } from "../rpc";
 import { cumulativeBurnedAt } from "./burns";
@@ -48,6 +49,12 @@ export type SupplyResult = {
   circulatingHuman: number;
   totalHuman: number;
   excludedBalances: Record<string, bigint>;
+  // Buyback graveyard: SLVR parked forever (out of circulation, still in totalSupply()).
+  graveyardRaw: bigint;
+  graveyardHuman: number;
+  // Circulating with ONLY treasury excluded — matches the token's getCirculatingSupply()
+  // (which does not know about the graveyard). Used for the on-chain cross-check.
+  circulatingExGraveyardRaw: bigint;
   onChainCirculatingRaw: bigint | null;
   deployerBalance: bigint;
   block: bigint;
@@ -90,8 +97,26 @@ export async function computeSupply(
     excludedRaw += excludedBalances[label] ?? 0n;
   }
 
-  // 3. circulating = totalSupply - excluded
-  const circulatingRaw = totalSupplyRaw > excludedRaw ? totalSupplyRaw - excludedRaw : 0n;
+  // 3a. Treasury-excluded circulating — matches the token's getCirculatingSupply().
+  const circulatingExGraveyardRaw =
+    totalSupplyRaw > excludedRaw ? totalSupplyRaw - excludedRaw : 0n;
+
+  // 3b. Buyback graveyard balance: permanently-parked SLVR. The token does NOT
+  //     special-case this address (unlike 0x0/dead → real burn), so it stays in
+  //     totalSupply() and is NOT in getCirculatingSupply() — subtract it ourselves.
+  let graveyardRaw = 0n;
+  try {
+    const gHex = await archivalCall(SLVR_TOKEN, encodeBalanceOf(SLVR_GRAVEYARD), block);
+    graveyardRaw = decodeUint256(gHex);
+  } catch {
+    graveyardRaw = 0n;
+  }
+
+  // 3c. Reported circulating excludes BOTH treasury and the buyback graveyard.
+  const circulatingRaw =
+    circulatingExGraveyardRaw > graveyardRaw
+      ? circulatingExGraveyardRaw - graveyardRaw
+      : 0n;
 
   // 4. Cross-check: on-chain getCirculatingSupply()
   let onChainCirculatingRaw: bigint | null = null;
@@ -131,6 +156,9 @@ export async function computeSupply(
     circulatingHuman: Number(circulatingRaw) / 1e18,
     totalHuman: Number(totalSupplyRaw) / 1e18,
     excludedBalances,
+    graveyardRaw,
+    graveyardHuman: Number(graveyardRaw) / 1e18,
+    circulatingExGraveyardRaw,
     onChainCirculatingRaw,
     deployerBalance,
     block,

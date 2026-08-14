@@ -41,6 +41,7 @@ import { computeSupply } from "./formulas/supply";
 import { computeRunway } from "./formulas/runway";
 import { computeStakingApy } from "./formulas/stakingApy";
 import { computeLpStakingApy } from "./formulas/lpStakingApy";
+import { fetchBuybackEvents } from "./formulas/buybacks";
 import { fetchEthUsdHistory, nearestUsd } from "./ethUsd";
 import { archivalCall, archivalGetBlock, decodeUint256, getLogsAdaptive, TRANSFER_TOPIC0, ZERO_TOPIC } from "./rpc";
 import { getHead, generateSampleBlocks } from "./block-resolver";
@@ -53,6 +54,8 @@ import {
   LP_STAKING,
   VOTE_ESCROW,
   DEPLOY_BLOCK_TOKEN,
+  DEPLOY_BLOCK_BUYBACK,
+  APPROX_BLOCKS_PER_SEC,
 } from "./constants";
 
 const CURRENT_ROUND_ID_SEL = "0x9cbe5efd";
@@ -637,6 +640,107 @@ async function lpStakingApyBackfill(): Promise<void> {
   console.log(`[backfill][lp-staking-apy] done: ${processed} written, ${skipped} skipped`);
 }
 
+// ---------------------------------------------------------------------------
+// Buyback backfill: rebuild the buyback_totals cumulative series (SLVR burned +
+// ETH spent) at hourly marks over the mechanism's life. All BuybackBurned events
+// are fetched ONCE, then each hourly point sums events up to that block.
+// ---------------------------------------------------------------------------
+async function buybacksBackfill(): Promise<void> {
+  console.log("[backfill][buybacks] Rebuilding buyback_totals cumulative series (hourly)");
+  await sql`DELETE FROM metrics.metric_snapshots WHERE metric_name = 'buyback_totals'`;
+
+  const head = await getHead();
+  const events = await fetchBuybackEvents(DEPLOY_BLOCK_BUYBACK, head.block);
+  if (events.length === 0) {
+    console.log("[backfill][buybacks] No BuybackBurned events found — nothing to backfill.");
+    return;
+  }
+  const firstBlock = events[0].block;
+  console.log(
+    `[backfill][buybacks] ${events.length} events from block ${firstBlock} → ${head.block}`
+  );
+
+  const STEP = 36_000n; // ~1h at 100ms blocks
+  const samples: bigint[] = [];
+  for (let b = firstBlock; b < head.block; b += STEP) samples.push(b);
+  samples.push(head.block);
+
+  // Historical ETH/USD (hourly) to denominate spend in USD.
+  let ethHist: Array<[number, number]> = [];
+  try {
+    ethHist = await fetchEthUsdHistory(10);
+  } catch (e) {
+    console.warn("[backfill][buybacks] ETH/USD history fetch failed — USD will be null:", String(e));
+  }
+
+  const DAY = 86_400;
+  const winBlocks = BigInt(DAY * APPROX_BLOCKS_PER_SEC);
+  let processed = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const block = samples[i];
+    try {
+      const blk = await archivalGetBlock(block);
+      const ts = blk ? Number(blk.timestamp) : Math.floor(Date.now() / 1000);
+
+      // Cumulative up to this block.
+      let cumSlvr = 0n;
+      let cumEth = 0n;
+      let count = 0;
+      // Trailing ≤24h window for the daily rate at this block.
+      const floor = block > winBlocks ? block - winBlocks : 0n;
+      const wStart = firstBlock > floor ? firstBlock : floor;
+      let winSlvr = 0n;
+      let winEth = 0n;
+      for (const e of events) {
+        if (e.block > block) break; // events are sorted ascending
+        cumSlvr += e.slvrRaw;
+        cumEth += e.ethInRaw;
+        count++;
+        if (e.block >= wStart) {
+          winSlvr += e.slvrRaw;
+          winEth += e.ethInRaw;
+        }
+      }
+      const winSec = Math.max(1, Number(block - wStart) / APPROX_BLOCKS_PER_SEC);
+      const dailySlvr = ((Number(winSlvr) / 1e18) / winSec) * DAY;
+      const dailyEth = ((Number(winEth) / 1e18) / winSec) * DAY;
+      const ethUsd = nearestUsd(ethHist, ts * 1000);
+      const usd = (eth: number): number | null => (ethUsd > 0 ? eth * ethUsd : null);
+
+      await writeSnapshot({
+        metricName: "buyback_totals",
+        value: Number(cumSlvr) / 1e18,
+        value2: Number(cumEth) / 1e18,
+        value3: dailySlvr,
+        metadata: {
+          cumulative_slvr_burned: Number(cumSlvr) / 1e18,
+          cumulative_eth_spent: Number(cumEth) / 1e18,
+          cumulative_usd_spent: usd(Number(cumEth) / 1e18),
+          buyback_count: count,
+          daily_slvr: dailySlvr,
+          daily_eth: dailyEth,
+          daily_usd: usd(dailyEth),
+          eth_usd: ethUsd || null,
+          block: block.toString(),
+          source: "archival_backfill_buybacks",
+        },
+        snapshotAt: new Date(ts * 1000),
+        blockNumber: block,
+        backfill: true,
+      });
+      processed++;
+      console.log(
+        `[backfill][buybacks] ${i + 1}/${samples.length} block=${block} ` +
+        `cum=${(Number(cumSlvr) / 1e18).toFixed(2)} SLVR / ${(Number(cumEth) / 1e18).toFixed(4)} ETH (${count} buybacks)`
+      );
+    } catch (e) {
+      console.error(`[backfill][buybacks] block=${block} Error:`, String(e).slice(0, 100));
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  console.log(`[backfill][buybacks] Done. Wrote ${processed}/${samples.length} slots.`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const dryRun = args.includes("--dry-run");
@@ -644,6 +748,7 @@ async function main() {
   const stakingOnly = args.includes("--staking-only");
   const stakingApy = args.includes("--staking-apy");
   const lpStakingApy = args.includes("--lp-staking-apy");
+  const buybacks = args.includes("--buybacks");
 
   if (dryRun) {
     console.log("[backfill] DRY RUN — will compute sample blocks but not write to DB");
@@ -712,6 +817,23 @@ async function main() {
     `;
     console.log("\n[backfill][lp-staking-apy] lp_staking_apr series:");
     for (const r of rows) console.log(`  ${r.t}  ${r.apr}%`);
+    await sql.end();
+    return;
+  }
+
+  // Buyback mode: rebuild the buyback_totals cumulative series.
+  if (buybacks) {
+    await buybacksBackfill();
+    const rows = await sql<Array<{ t: string; slvr: string; eth: string }>>`
+      SELECT to_char(snapshot_at,'MM-DD HH24:MI') AS t,
+             round(value::numeric, 2)::text AS slvr,
+             round(value2::numeric, 4)::text AS eth
+      FROM metrics.metric_snapshots
+      WHERE metric_name = 'buyback_totals' AND value IS NOT NULL
+      ORDER BY snapshot_at ASC
+    `;
+    console.log("\n[backfill][buybacks] buyback_totals (cumulative SLVR / ETH) series:");
+    for (const r of rows) console.log(`  ${r.t}  ${r.slvr} SLVR  ${r.eth} ETH`);
     await sql.end();
     return;
   }

@@ -20,6 +20,7 @@ const KNOWN_METRICS = [
   "total_staked_slvr",
   "lottery_round_state",
   "emission_rate_30d",
+  "buyback_totals",
 ] as const;
 
 const KNOWN_RANGES = ["24h", "7d", "30d", "90d", "all"] as const;

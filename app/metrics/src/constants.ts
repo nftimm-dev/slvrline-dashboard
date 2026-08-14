@@ -28,6 +28,23 @@ export const LP_STAKING = "0x7D888f4Ca88Fc3578aEfc45C82482Bd66415DfeA" as const;
 // Hub
 export const SLVR_HUB = "0x55FC0daaB486E46fBF1d60787420c0311d9Dd57f" as const;
 
+// --- Buyback-and-burn -------------------------------------------------------
+// Keeper EOA fires the executor every ~80-90s; the executor swaps mining-revenue
+// ETH → SLVR on the V4 pool and forwards it to the graveyard, emitting BuybackBurned.
+export const BUYBACK_KEEPER = "0x7a58D6f46E92b02618EdB4f5ff3b72f7E64077Ad" as const;
+export const BUYBACK_EXECUTOR = "0xacdd8E9bad637798dBdb23a59cfa314743668bA4" as const;
+// SlvrGraveyard — an intentionally-empty, unrecoverable contract. Buyback SLVR is
+// parked here permanently. It is NOT the 0x0/dead burn (which the token redirects into
+// a real totalSupply burn); graveyard SLVR stays in totalSupply() but is out of
+// circulation, so we subtract it from circulating supply.
+export const SLVR_GRAVEYARD = "0xF32Fc533511783b2707A08eEA22A9f4E59996100" as const;
+// BuybackBurned(uint256 ethIn, uint256 tokensBurned) — both non-indexed (in data).
+export const BUYBACK_BURNED_TOPIC0 =
+  "0xc65a4c73cfd820dccb7079db9e52bb2c09dfd56f9221e7d815e201b726b5c39d" as const;
+// First BuybackBurned event (executor was created earlier at 34,773,725 but buybacks
+// began here). Scan start for the event history.
+export const DEPLOY_BLOCK_BUYBACK = 35_769_560n;
+
 // Round-based canonical split: rounds < 12500 → V1 canonical, >= 12500 → V2 canonical
 export const MIGRATION_ROUND = 12_500n;
 
