@@ -1,21 +1,28 @@
 /**
  * GET /api/buybacks
  *
- * Buyback-and-burn snapshot: cumulative SLVR burned + ETH/USD spent, the current
- * daily rate, cadence, and the most recent buybacks. Served from the latest
- * `buyback_totals` row in metrics.metric_snapshots (written by the metrics cron
- * from the executor's on-chain BuybackBurned events).
+ * Buyback-and-burn snapshot. Cumulative SLVR burned + ETH/USD spent and the daily
+ * rate come from the latest `buyback_totals` row in metrics.metric_snapshots. The
+ * recent-buybacks feed + cadence are read LIVE from the executor's on-chain
+ * BuybackBurned events (fresh to the second, and never blank between cron ticks).
  *
  * Cache: 30s in-process TTL.
  */
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { withCache } from "@/lib/cache";
+import { ethBlockNumber, getLogsAdaptive } from "@/lib/rpc";
 import type { BuybackData, BuybackRecentEvent } from "@/lib/buybacks";
 
-// Robinhood Chain ~10 blocks/sec — used to approximate an event's wall-clock time
-// from its block relative to the snapshot's block/timestamp.
-const APPROX_BLOCKS_PER_SEC = 10;
+// Buyback executor (emits BuybackBurned) + event topic0.
+const BUYBACK_EXECUTOR = "0xacdd8E9bad637798dBdb23a59cfa314743668bA4";
+const BUYBACK_BURNED_TOPIC0 =
+  "0xc65a4c73cfd820dccb7079db9e52bb2c09dfd56f9221e7d815e201b726b5c39d";
+// Robinhood Chain ~10 blocks/sec.
+const BLOCKS_PER_SEC = 10;
+// Look back ~50 min so there are always enough events to show + measure cadence.
+const RECENT_WINDOW_BLOCKS = 30_000n;
+const RECENT_LIMIT = 20;
 
 interface Row {
   value: string | null;
@@ -30,38 +37,105 @@ function numOrNull(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+/** Decode BuybackBurned(ethIn, tokensBurned) from a log's data blob → SLVR/ETH. */
+function decode(data: string): { eth: number; slvr: number } {
+  const body = data && data !== "0x" ? data.replace(/^0x/, "") : "";
+  const eth = body.length >= 64 ? Number(BigInt("0x" + body.slice(0, 64))) / 1e18 : 0;
+  const slvr = body.length >= 128 ? Number(BigInt("0x" + body.slice(64, 128))) / 1e18 : 0;
+  return { eth, slvr };
+}
+
+interface LiveRecent {
+  recent: BuybackRecentEvent[];
+  avgIntervalSec: number | null;
+  buybacksPerDay: number | null;
+}
+
+/** Live recent buybacks + cadence from the executor's BuybackBurned events. */
+async function fetchRecentLive(): Promise<LiveRecent | null> {
+  try {
+    const head = await ethBlockNumber();
+    const from = head > RECENT_WINDOW_BLOCKS ? head - RECENT_WINDOW_BLOCKS : 0n;
+    const logs = await getLogsAdaptive({
+      address: BUYBACK_EXECUTOR,
+      topics: [BUYBACK_BURNED_TOPIC0],
+      fromBlock: from,
+      toBlock: head,
+    });
+
+    const evs = logs
+      .map((l) => {
+        const { eth, slvr } = decode(l.data);
+        return { block: Number(BigInt(l.blockNumber)), eth, slvr };
+      })
+      .sort((a, b) => b.block - a.block); // newest first
+
+    if (evs.length === 0) return { recent: [], avgIntervalSec: null, buybacksPerDay: null };
+
+    const headNum = Number(head);
+    const nowMs = Date.now();
+    const recent: BuybackRecentEvent[] = evs.slice(0, RECENT_LIMIT).map((e) => ({
+      block: e.block,
+      eth: e.eth,
+      slvr: e.slvr,
+      approxTs: nowMs - ((headNum - e.block) / BLOCKS_PER_SEC) * 1000,
+    }));
+
+    // Cadence: average gap across the window (consistent with the daily rate).
+    let avgIntervalSec: number | null = null;
+    let buybacksPerDay: number | null = null;
+    if (evs.length > 1) {
+      const newest = evs[0].block;
+      const oldest = evs[evs.length - 1].block;
+      const spanSec = (newest - oldest) / BLOCKS_PER_SEC;
+      avgIntervalSec = spanSec / (evs.length - 1);
+      buybacksPerDay = avgIntervalSec > 0 ? 86_400 / avgIntervalSec : null;
+    }
+    return { recent, avgIntervalSec, buybacksPerDay };
+  } catch {
+    return null; // fall back to snapshot metadata
+  }
+}
+
 async function fetchBuybacks(): Promise<BuybackData | null> {
   const db = getDb();
-  const [row] = await db<Row[]>`
-    SELECT value, value2, value3, metadata, snapshot_at, block_number
-    FROM metrics.metric_snapshots
-    WHERE metric_name = 'buyback_totals'
-      AND value IS NOT NULL
-    ORDER BY snapshot_at DESC
-    LIMIT 1
-  `;
+  const [[row], live] = await Promise.all([
+    db<Row[]>`
+      SELECT value, value2, value3, metadata, snapshot_at, block_number
+      FROM metrics.metric_snapshots
+      WHERE metric_name = 'buyback_totals'
+        AND value IS NOT NULL
+      ORDER BY snapshot_at DESC
+      LIMIT 1
+    `,
+    fetchRecentLive(),
+  ]);
   if (!row) return null;
 
   const m = (row.metadata ?? {}) as Record<string, unknown>;
   const num = (v: string | null): number => (v !== null ? parseFloat(v) : 0);
 
+  // Snapshot-metadata recent (fallback) — approx time from snapshot block/time.
   const snapBlock = row.block_number !== null ? parseInt(row.block_number, 10) : null;
   const snapMs = row.snapshot_at.getTime();
-
-  const recentRaw = Array.isArray(m.recent) ? (m.recent as Array<Record<string, unknown>>) : [];
-  const recent: BuybackRecentEvent[] = recentRaw.map((e) => {
+  const metaRecentRaw = Array.isArray(m.recent) ? (m.recent as Array<Record<string, unknown>>) : [];
+  const metaRecent: BuybackRecentEvent[] = metaRecentRaw.map((e) => {
     const block = parseInt(String(e.block), 10);
-    const approxTs =
-      snapBlock !== null && Number.isFinite(block)
-        ? snapMs - ((snapBlock - block) / APPROX_BLOCKS_PER_SEC) * 1000
-        : snapMs;
     return {
       block: Number.isFinite(block) ? block : 0,
       eth: Number(e.eth) || 0,
       slvr: Number(e.slvr) || 0,
-      approxTs,
+      approxTs:
+        snapBlock !== null && Number.isFinite(block)
+          ? snapMs - ((snapBlock - block) / BLOCKS_PER_SEC) * 1000
+          : snapMs,
     };
   });
+
+  // Prefer the live feed; fall back to snapshot metadata if the RPC is unavailable.
+  const recent = live && live.recent.length ? live.recent : metaRecent;
+  const avgIntervalSec = live?.avgIntervalSec ?? numOrNull(m.avg_interval_sec);
+  const buybacksPerDay = live?.buybacksPerDay ?? numOrNull(m.buybacks_per_day);
 
   return {
     cumulativeSlvr: num(row.value),
@@ -71,8 +145,8 @@ async function fetchBuybacks(): Promise<BuybackData | null> {
     dailyEth: numOrNull(m.daily_eth) ?? 0,
     dailyUsd: numOrNull(m.daily_usd),
     buybackCount: numOrNull(m.buyback_count) ?? 0,
-    buybacksPerDay: numOrNull(m.buybacks_per_day),
-    avgIntervalSec: numOrNull(m.avg_interval_sec),
+    buybacksPerDay,
+    avgIntervalSec,
     ethUsd: numOrNull(m.eth_usd),
     graveyardBalanceSlvr: numOrNull(m.graveyard_balance_slvr),
     graveyardMatch: typeof m.graveyard_match === "boolean" ? m.graveyard_match : null,
@@ -93,7 +167,7 @@ export async function GET() {
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": "no-store",
-        "X-Data-Sources": "postgres",
+        "X-Data-Sources": "postgres,robinhood-rpc",
       },
     });
   } catch (err) {
