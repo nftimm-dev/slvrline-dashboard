@@ -9,18 +9,25 @@
 
 const BLOCKSCOUT_API = "https://robinhoodchain.blockscout.com/api/v2";
 
-async function fetchBlockscout<T>(path: string): Promise<T> {
-  const res = await fetch(`${BLOCKSCOUT_API}${path}`, {
-    signal: AbortSignal.timeout(12_000),
-    headers: {
-      "User-Agent": "slvrline-dashboard/1.0",
-      Accept: "application/json",
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`Blockscout ${path} failed: ${res.status}`);
+async function fetchBlockscout<T>(path: string, retries = 3): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${BLOCKSCOUT_API}${path}`, {
+        signal: AbortSignal.timeout(12_000),
+        headers: {
+          "User-Agent": "slvrline-dashboard/1.0",
+          Accept: "application/json",
+        },
+      });
+      if (!res.ok) throw new Error(`Blockscout ${path} failed: ${res.status}`);
+      return (await res.json()) as T;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < retries) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
   }
-  return res.json() as Promise<T>;
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
 
 // --- /tokens/{addr} ---------------------------------------------------------
