@@ -111,7 +111,7 @@ function buildRecent(
   return transfers
     .filter((t) => t.to === buyerLc && t.valueRaw > 0n)
     .sort((a, b) => b.block - a.block)
-    .slice(0, 20)
+    .slice(0, 60)
     .map((t) => ({
       ts: t.timestamp ?? "",
       slvr: Number(t.valueRaw) / 1e18,

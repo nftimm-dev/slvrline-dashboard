@@ -5,7 +5,13 @@ import Panel from "@/components/analytics/Panel";
 import DataTable, { type Column } from "@/components/analytics/DataTable";
 import StateMessage from "@/components/analytics/StateMessage";
 import type { BuybackData } from "@/lib/buybacks";
-import type { GrowthFundData } from "@/lib/growthFund";
+import type { GrowthFundRecent } from "@/lib/growthFund";
+
+/** Shape of GET /api/growthfund/recent — live flywheel buys, no heavy totals. */
+interface GfRecentResponse {
+  recent: GrowthFundRecent[];
+  ethUsd: number | null;
+}
 
 const fetcher = (url: string) =>
   fetch(url).then((r) => {
@@ -109,7 +115,7 @@ export default function UnifiedRecentBuybacks() {
     fetcher,
     { refreshInterval: 60_000, revalidateOnFocus: false }
   );
-  const { data: gf, error: gfErr } = useSWR<GrowthFundData>("/api/growthfund", fetcher, {
+  const { data: gf, error: gfErr } = useSWR<GfRecentResponse>("/api/growthfund/recent", fetcher, {
     refreshInterval: 60_000,
     revalidateOnFocus: false,
   });
@@ -135,7 +141,7 @@ export default function UnifiedRecentBuybacks() {
   ]
     .filter((r) => Number.isFinite(r.ts))
     .sort((a, b) => b.ts - a.ts)
-    .slice(0, 30);
+    .slice(0, 150);
 
   const failed = !!burnErr && !!gfErr;
   const loading = burnLoading && !burn && !gf;
@@ -162,6 +168,7 @@ export default function UnifiedRecentBuybacks() {
             loading={loading}
             skeletonRows={10}
             emptyMessage="No buybacks recorded yet"
+            maxHeight={520}
           />
         )}
       </Panel>

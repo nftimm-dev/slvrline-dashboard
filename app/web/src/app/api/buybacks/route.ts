@@ -20,9 +20,11 @@ const BUYBACK_BURNED_TOPIC0 =
   "0xc65a4c73cfd820dccb7079db9e52bb2c09dfd56f9221e7d815e201b726b5c39d";
 // Robinhood Chain ~10 blocks/sec.
 const BLOCKS_PER_SEC = 10;
-// Look back ~50 min so there are always enough events to show + measure cadence.
-const RECENT_WINDOW_BLOCKS = 30_000n;
-const RECENT_LIMIT = 20;
+// Look back ~4h so the recent-buybacks feed shows real history, not just ~30 min.
+const RECENT_WINDOW_BLOCKS = 150_000n;
+const RECENT_LIMIT = 200;
+// Cadence is measured over a shorter, more representative recent window.
+const CADENCE_WINDOW_BLOCKS = 30_000n;
 
 interface Row {
   value: string | null;
@@ -81,14 +83,15 @@ async function fetchRecentLive(): Promise<LiveRecent | null> {
       approxTs: nowMs - ((headNum - e.block) / BLOCKS_PER_SEC) * 1000,
     }));
 
-    // Cadence: average gap across the window (consistent with the daily rate).
+    // Cadence: average gap over the recent (shorter) window so it reflects the
+    // CURRENT rate, not a 4h average that a gap could skew.
+    const cadenceFloor = headNum - Number(CADENCE_WINDOW_BLOCKS);
+    const cadEvs = evs.filter((e) => e.block >= cadenceFloor);
     let avgIntervalSec: number | null = null;
     let buybacksPerDay: number | null = null;
-    if (evs.length > 1) {
-      const newest = evs[0].block;
-      const oldest = evs[evs.length - 1].block;
-      const spanSec = (newest - oldest) / BLOCKS_PER_SEC;
-      avgIntervalSec = spanSec / (evs.length - 1);
+    if (cadEvs.length > 1) {
+      const spanSec = (cadEvs[0].block - cadEvs[cadEvs.length - 1].block) / BLOCKS_PER_SEC;
+      avgIntervalSec = spanSec / (cadEvs.length - 1);
       buybacksPerDay = avgIntervalSec > 0 ? 86_400 / avgIntervalSec : null;
     }
     return { recent, avgIntervalSec, buybacksPerDay };
