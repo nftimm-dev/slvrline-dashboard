@@ -319,6 +319,15 @@ export async function computeAndWrite(): Promise<void> {
   // ---- 5. total_staked_slvr ----
   try {
     const staking = await computeStaking(headBlock);
+    // A zero total means both lock enumeration and the balanceOf fallback came back
+    // empty — a failed read, never a real value (staking is always > 0 in this era).
+    // Skip the write so we don't persist a 0/0/0 snapshot that spikes the chart.
+    if (staking.totalLockedRaw <= 0n) {
+      console.warn(
+        `[metrics][STAKING] Skipping snapshot: totalLockedRaw=0 (failed read, source=${staking.source})`
+      );
+      throw new Error("staking read returned zero — skipping snapshot");
+    }
     // Build display-oriented rollups from the active-lock list so /api/staking can
     // serve the page instantly from the DB (no on-request chain enumeration).
     const topLockers = buildTopLockers(staking.activeLocks);
