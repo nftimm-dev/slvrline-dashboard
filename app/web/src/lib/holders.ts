@@ -24,6 +24,7 @@ import { getTokenMeta, getTopHolders } from "./blockscout";
 import { getLabel, SLVR_TOKEN_ADDRESS } from "./labels";
 import { getMiningUnclaimed } from "./miningUnclaimed";
 import { computeVeAggregate } from "./veLocks";
+import { ethCall, decodeUint256, encodeAddress } from "./rpc";
 
 const CACHE_TTL = 300; // 5 min
 const CACHE_KEY = "holders:page";
@@ -34,6 +35,19 @@ const TOP_N = 25;
 const GRID_MINING_V2 = "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71";
 // Vote Escrow NFT — its SLVR balance is the time-locked SLVR pool.
 const VOTE_ESCROW = "0xd9b8fbd61033145c5496132153ce675756313b71";
+
+// Curated protocol/treasury wallets that must ALWAYS be shown in the "Protocol
+// addresses" section — even when their live balance falls below the top-N holder
+// cutoff. A treasury wallet emptying into staking/vesting shouldn't look like it
+// "disappeared" from the page. Live balances are read directly via balanceOf().
+const PINNED_PROTOCOL_ADDRESSES = [
+  "0x1a1633fdb2f19082099a6ad6c3d4f1ec6bce9729", // Growth Fund
+  "0xfafcbd4d09c096eb06aa2256c7a65ceab2db39f5", // Team Vesting
+  "0x4444479b89b684e79392924b3a70be03733190de", // Growth Recipient
+];
+
+// ERC-20 balanceOf(address) selector.
+const BALANCE_OF_SELECTOR = "0x70a08231";
 
 /**
  * Holders-CONTEXT label overrides. On the holders table, the Grid Mining
@@ -97,6 +111,60 @@ export interface HoldersData {
   cacheTtlSeconds: number;
 }
 
+/** Live on-chain SLVR balance (raw base units) for one address, via balanceOf(). */
+async function fetchSlvrBalanceRaw(address: string): Promise<bigint> {
+  return decodeUint256(
+    await ethCall(SLVR_TOKEN_ADDRESS, BALANCE_OF_SELECTOR + encodeAddress(address))
+  );
+}
+
+/**
+ * Build "always-visible" rows for the pinned protocol wallets not already present
+ * in `shown` (the displayed top-N addresses). Reads each wallet's live balance so
+ * treasury wallets never vanish from the Protocol addresses section — even at ~0.
+ * An RPC hiccup skips that one row rather than failing the whole page.
+ */
+async function fetchPinnedProtocolRows(
+  shown: Set<string>,
+  scale: number,
+  totalSupplyRaw: bigint,
+  economic: boolean
+): Promise<HolderRow[]> {
+  const pct = (raw: bigint): number =>
+    totalSupplyRaw > 0n ? (Number(raw) / Number(totalSupplyRaw)) * 100 : 0;
+
+  const rows = await Promise.all(
+    PINNED_PROTOCOL_ADDRESSES.filter((a) => !shown.has(a.toLowerCase())).map(
+      async (addr): Promise<HolderRow | null> => {
+        try {
+          const raw = await fetchSlvrBalanceRaw(addr);
+          const balanceSlvr = Number(raw) / scale;
+          return {
+            rank: 0, // not a competitive holder rank; the protocol table hides it
+            address: addr,
+            label: holdersLabel(addr, null),
+            isContract: true,
+            isProtocol: true,
+            balanceSlvr,
+            pctOfSupply: pct(raw),
+            // Treasury wallets aren't miners/stakers, so their economic balance
+            // equals their wallet balance (single source → composition not shown).
+            ...(economic
+              ? { composition: { wallet: balanceSlvr, unclaimed: 0, staked: 0 } }
+              : {}),
+          };
+        } catch {
+          return null;
+        }
+      }
+    )
+  );
+
+  return rows
+    .filter((r): r is HolderRow => r !== null)
+    .sort((a, b) => b.balanceSlvr - a.balanceSlvr);
+}
+
 async function fetchHolders(): Promise<HoldersData> {
   const [meta, rawHolders] = await Promise.all([
     getTokenMeta(SLVR_TOKEN_ADDRESS),
@@ -133,11 +201,15 @@ async function fetchHolders(): Promise<HoldersData> {
     .slice(0, 10)
     .reduce((s, h) => s + h.pctOfSupply, 0);
 
+  // Always surface the curated treasury wallets, even below the top-N cutoff.
+  const shown = new Set(ranked.map((r) => r.address.toLowerCase()));
+  const pinned = await fetchPinnedProtocolRows(shown, scale, totalSupplyRaw, false);
+
   return {
     holderCount: meta.holderCount,
     totalSupplySlvr,
     top10Pct,
-    top: ranked,
+    top: [...ranked, ...pinned],
     mode: "raw",
     cachedAt: new Date().toISOString(),
     cacheTtlSeconds: CACHE_TTL,
@@ -270,11 +342,15 @@ async function fetchEconomicHolders(): Promise<HoldersData> {
 
   const top10Pct = top.slice(0, 10).reduce((s, h) => s + h.pctOfSupply, 0);
 
+  // Always surface the curated treasury wallets, even below the top-N cutoff.
+  const shown = new Set(top.map((r) => r.address.toLowerCase()));
+  const pinned = await fetchPinnedProtocolRows(shown, scale, totalSupplyRaw, true);
+
   return {
     holderCount: meta.holderCount,
     totalSupplySlvr,
     top10Pct,
-    top,
+    top: [...top, ...pinned],
     mode: "economic",
     cachedAt: new Date().toISOString(),
     cacheTtlSeconds: CACHE_TTL,
