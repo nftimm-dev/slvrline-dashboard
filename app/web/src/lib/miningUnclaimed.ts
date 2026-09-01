@@ -1,20 +1,20 @@
 /**
  * "Unclaimed SLVR by miner" — WHO is owed the Grid Mining unclaimed-rewards pool.
  *
- * The Grid Mining V2 contract (GridLottery V2, 0xB0Cc…0c71) holds ~totalUnclaimed()
- * SLVR of accrued-but-unclaimed mining rewards. This module breaks that pool down
- * PER MINER so the /mining page can show a holders-list-style ranking.
+ * The permanent SlvrMinerVault (0x2070…5260) holds totalUnclaimed() SLVR of
+ * accrued-but-unclaimed mining rewards. This module breaks the attributed part
+ * of that pool down PER MINER for the /mining rankings.
  *
  * HOW (verified against the verified source + on-chain reconciliation):
- *   1. Enumerate miner addresses from BetPlaced(roundId, beneficiary, total, squares)
- *      logs on V2 (beneficiary is indexed topic2) via getLogsAdaptive across
- *      genesis→head, deduped. PRIMARY-pinned + subdivided — the secondary RPC
- *      silently truncates wide getLogs ranges.
+ *   1. Enumerate every known miner from the protocol's event-indexed
+ *      MinerAccount set, then scan Credited/MigratedIn logs from that indexer's
+ *      exact block to head. This avoids replaying ~150k logs on every refresh
+ *      while the direct tail scan prevents indexing lag from dropping new miners.
  *   2. Multicall3 aggregate3-batch getMinerState(miner) for every miner and read
  *      `rewardsSlvr` (word 0) — the miner's current UNCLAIMED SLVR balance. Filter >0.
  *
  * WHY rewardsSlvr is the right field (not getUnclaimedSlvrPerRound):
- *   getMinerState returns (rewardsSlvr, refinedAccrued, indexSnapshot, hasAccount).
+ *   Vault getMinerState returns (rewardsSlvr, indexSnapshot, refinedAccrued, refineClock).
  *   - `rewardsSlvr` is the miner's unclaimed principal; SUM(rewardsSlvr) reconciles to
  *     totalUnclaimed() within a small residual (see below).
  *   - `refinedAccrued` is a SEPARATE refining BONUS accrued to that miner; it is NOT
@@ -23,13 +23,10 @@
  *     the backing mapping is declared + returned but never written → always 0. So it
  *     is NOT a usable fallback; we rely on rewardsSlvr, which reconciles.
  *
- * RECONCILIATION (checked live at build time, ~577 SLVR pool):
- *   SUM(rewardsSlvr) ≈ totalUnclaimed() to within ~0.5% (a few SLVR). The residual is
- *   the contract's LAZY checkpointing: totalUnclaimed grows at round resolution
- *   (totalUnclaimed += slvrForWinners) for ALL winners, but a winner's per-account
- *   rewardsSlvr is only populated once they interact (claim), so very recent winners
- *   who have not claimed sit in the aggregate but not yet in any per-miner balance. We
- *   report this reconciliation transparently rather than fabricating a split.
+ * RECONCILIATION (an on-chain invariant):
+ *   totalUnclaimed == reserved + SUM(rewardsSlvr). `reserved` is emitted SLVR for
+ *   resolved rounds whose winners have not yet claimed and therefore cannot yet be
+ *   attributed to an address.
  *
  * Cache: 5 minutes.
  */
@@ -47,26 +44,31 @@ import {
 } from "./rpc";
 import { getLabel, getBlockscoutUrl } from "./labels";
 
-const LOTTERY_V2 = "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71";
+const MINER_VAULT = "0x2070b4B0c57EaF070CF86cD8321a6054f3D25260";
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
+const SUBGRAPH_URL =
+  "https://api.goldsky.com/api/public/project_cmre158qbffn101xe929tflsk/subgraphs/slvr-robinhood/1.9.0/gn";
 
-// V2 deploy / migration block (accumulator reset). BetPlaced never precedes it.
-const V2_DEPLOY_BLOCK = 16_764_101n;
+const MINER_VAULT_DEPLOY_BLOCK = 35_594_698n;
 
-// keccak256("BetPlaced(uint256,address,uint256,uint8[])")
-const BET_PLACED_TOPIC0 =
-  "0xd60a2fc8819207eb21f78d0ae6d3c0a97cc7a3e76eb20e4d8c3049023f9da306";
+// Credited(address indexed game,address indexed miner,uint256 amount,uint64 refineClock)
+const CREDITED_TOPIC0 =
+  "0x197168f6ee671a838e6651cacdaba1944018a6813668a8e539d74fed8d322683";
+// MigratedIn(address indexed miner,uint256 amount,uint64 refineClock)
+const MIGRATED_IN_TOPIC0 =
+  "0x876b81ca412fc58a2f184475ffd0aa4461ac2831b9baff5791b4c5dff250b060";
 
-// Selectors (keccak256(sig)[:4] — verified against the deployed V2 contract).
+// Selectors (keccak256(sig)[:4] — verified against SlvrMinerVault).
 const GET_MINER_STATE_SEL = "0xe8fd1cb9"; // getMinerState(address)
 const TOTAL_UNCLAIMED_SEL = "0xc96f14b8"; // totalUnclaimed()
 const MINER_INDEX_SEL = "0x9806b4d2"; // minerIndex()
+const RESERVED_SEL = "0xfe60d12c"; // reserved()
 const AGGREGATE3_SELECTOR = "0x82ad56cb"; // aggregate3((address,bool,bytes)[])
 
 const WAD = 1e18;
 const MULTICALL_BATCH = 300; // getMinerState calldata is tiny (36 bytes) → 300/call is safe
 const CACHE_TTL = 300; // 5 min
-const CACHE_KEY = "mining:unclaimed-by-miner";
+const CACHE_KEY = "mining:unclaimed-by-miner:vault:v1";
 const TOP_N = 50;
 
 export interface UnclaimedMinerRow {
@@ -91,13 +93,15 @@ export interface MinerOwed {
 export interface MiningUnclaimedData {
   /** Contract aggregate: totalUnclaimed() in SLVR — the pool total. */
   totalUnclaimed: number;
-  /** Sum of per-miner rewardsSlvr — should reconcile to totalUnclaimed. */
+  /** Sum of per-miner rewardsSlvr; plus reservedUnattributed equals totalUnclaimed. */
   sumMinerUnclaimed: number;
-  /** totalUnclaimed − sumMinerUnclaimed (the lazy-checkpoint residual), SLVR. */
+  /** totalUnclaimed − sumMinerUnclaimed; equals reservedUnattributed. */
   reconciliationResidual: number;
+  /** Resolved-round SLVR not yet attributed to a winner. */
+  reservedUnattributed: number;
   /** |residual| / totalUnclaimed × 100. */
   reconciliationPct: number;
-  /** How many distinct miner accounts we enumerated from BetPlaced. */
+  /** How many distinct candidate miner accounts were checked on-chain. */
   minersEnumerated: number;
   /** How many of those are currently owed (rewardsSlvr > 0). */
   minerCount: number;
@@ -278,21 +282,92 @@ async function runAggregate3Batch(
 // Enumerate + batch-read
 // ---------------------------------------------------------------------------
 
-/** Unique miner (beneficiary) addresses from BetPlaced logs on V2. */
-async function enumerateMiners(toBlock: bigint): Promise<string[]> {
-  const logs = await getLogsAdaptive({
-    address: LOTTERY_V2,
-    topics: [BET_PLACED_TOPIC0], // beneficiary is topic2 (indexed), not filterable here → dedupe below
-    fromBlock: V2_DEPLOY_BLOCK,
-    toBlock,
-  });
+async function fetchIndexedMiners(): Promise<{
+  miners: string[];
+  indexedThrough: bigint;
+}> {
+  const miners: string[] = [];
+  let indexedThrough: bigint | null = null;
+  const pageSize = 1_000;
 
-  const set = new Set<string>();
-  for (const lg of logs) {
-    // topics = [sig, roundId, beneficiary]. beneficiary = last 20 bytes of topic2.
-    if (lg.topics.length >= 3) {
-      set.add("0x" + lg.topics[2].slice(26).toLowerCase());
+  for (let page = 0; page < 10; page++) {
+    const query = `{
+      _meta { block { number } }
+      minerAccounts(
+        first: ${pageSize}
+        skip: ${page * pageSize}
+        orderBy: id
+        orderDirection: asc
+      ) { address }
+    }`;
+    const response = await fetch(SUBGRAPH_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw new Error(`MinerAccount index HTTP ${response.status}`);
+
+    const result = (await response.json()) as {
+      data?: {
+        _meta?: { block?: { number?: number } };
+        minerAccounts?: Array<{ address?: string }>;
+      };
+      errors?: Array<{ message?: string }>;
+    };
+    if (result.errors?.length || !result.data?.minerAccounts) {
+      throw new Error(result.errors?.[0]?.message ?? "MinerAccount index unavailable");
     }
+
+    if (indexedThrough === null) {
+      const block = result.data._meta?.block?.number;
+      if (!Number.isSafeInteger(block)) throw new Error("MinerAccount index missing head block");
+      indexedThrough = BigInt(block!);
+    }
+
+    for (const row of result.data.minerAccounts) {
+      if (/^0x[0-9a-fA-F]{40}$/.test(row.address ?? "")) {
+        miners.push(row.address!.toLowerCase());
+      }
+    }
+    if (result.data.minerAccounts.length < pageSize) break;
+  }
+
+  if (indexedThrough === null) throw new Error("MinerAccount index returned no metadata");
+  return { miners, indexedThrough };
+}
+
+/** Unique miner addresses, with the index-to-chain tail covered by raw logs. */
+async function enumerateMiners(toBlock: bigint): Promise<string[]> {
+  const set = new Set<string>();
+  let fromBlock = MINER_VAULT_DEPLOY_BLOCK;
+  try {
+    const indexed = await fetchIndexedMiners();
+    for (const miner of indexed.miners) set.add(miner);
+    fromBlock = indexed.indexedThrough + 1n;
+  } catch (error) {
+    // Correctness fallback: replay all vault state events if the address index is
+    // unavailable. It is slower, but never silently returns a partial ranking.
+    console.warn(
+      "[miningUnclaimed] MinerAccount index unavailable; scanning vault from deploy:",
+      error instanceof Error ? error.message : error
+    );
+  }
+
+  const logs =
+    fromBlock <= toBlock
+      ? await getLogsAdaptive({
+          address: MINER_VAULT,
+          topics: [[CREDITED_TOPIC0, MIGRATED_IN_TOPIC0]],
+          fromBlock,
+          toBlock,
+        })
+      : [];
+
+  for (const lg of logs) {
+    const topic = lg.topics[0]?.toLowerCase();
+    const minerTopic = topic === CREDITED_TOPIC0 ? lg.topics[2] : lg.topics[1];
+    if (minerTopic) set.add("0x" + minerTopic.slice(26).toLowerCase());
   }
   return [...set];
 }
@@ -316,7 +391,7 @@ async function batchReadMinerState(
     batches.push({
       miners: batchMiners,
       calls: batchMiners.map((m) => ({
-        target: LOTTERY_V2,
+        target: MINER_VAULT,
         allowFailure: true,
         callData: GET_MINER_STATE_SEL + encodeAddress(m),
       })),
@@ -337,10 +412,10 @@ async function batchReadMinerState(
         out.set(batchMiners[j], { rewardsSlvrRaw: 0n, refinedAccruedRaw: 0n });
         continue;
       }
-      // getMinerState → (rewardsSlvr, refinedAccrued, indexSnapshot, hasAccount)
+      // Vault getMinerState → (rewardsSlvr, indexSnapshot, refinedAccrued, refineClock)
       out.set(batchMiners[j], {
         rewardsSlvrRaw: wordAt(r.data, 0),
-        refinedAccruedRaw: wordAt(r.data, 1),
+        refinedAccruedRaw: wordAt(r.data, 2),
       });
     }
   }
@@ -356,13 +431,16 @@ async function fetchMiningUnclaimed(): Promise<MiningUnclaimedData> {
   const atBlock = "0x" + head.toString(16);
 
   // Aggregate contract state (independent of enumeration).
-  const [totalUnclaimedHex, minerIndexHex] = await Promise.all([
-    ethCall(LOTTERY_V2, TOTAL_UNCLAIMED_SEL, head),
-    ethCall(LOTTERY_V2, MINER_INDEX_SEL, head),
+  const [totalUnclaimedHex, minerIndexHex, reservedHex] = await Promise.all([
+    ethCall(MINER_VAULT, TOTAL_UNCLAIMED_SEL, head),
+    ethCall(MINER_VAULT, MINER_INDEX_SEL, head),
+    ethCall(MINER_VAULT, RESERVED_SEL, head),
   ]);
   const totalUnclaimedRaw = decodeUint256(totalUnclaimedHex);
   const totalUnclaimed = Number(totalUnclaimedRaw) / WAD;
   const minerIndex = Number(decodeUint256(minerIndexHex)) / WAD;
+  const reservedRaw = decodeUint256(reservedHex);
+  const reservedUnattributed = Number(reservedRaw) / WAD;
 
   const miners = await enumerateMiners(head);
   const stateMap = await batchReadMinerState(miners, head);
@@ -384,6 +462,13 @@ async function fetchMiningUnclaimed(): Promise<MiningUnclaimedData> {
         refinedRaw: s.refinedAccruedRaw,
       });
     }
+  }
+
+  const attributedRaw = totalUnclaimedRaw - reservedRaw;
+  if (sumRaw !== attributedRaw) {
+    throw new Error(
+      `Miner vault invariant mismatch: states=${sumRaw}, attributed=${attributedRaw}`
+    );
   }
 
   owed.sort((a, b) =>
@@ -408,7 +493,7 @@ async function fetchMiningUnclaimed(): Promise<MiningUnclaimedData> {
   }));
 
   const sumMinerUnclaimed = Number(sumRaw) / WAD;
-  const reconciliationResidual = totalUnclaimed - sumMinerUnclaimed;
+  const reconciliationResidual = Number(totalUnclaimedRaw - sumRaw) / WAD;
   const reconciliationPct =
     totalUnclaimed > 0
       ? (Math.abs(reconciliationResidual) / totalUnclaimed) * 100
@@ -418,6 +503,7 @@ async function fetchMiningUnclaimed(): Promise<MiningUnclaimedData> {
     totalUnclaimed,
     sumMinerUnclaimed,
     reconciliationResidual,
+    reservedUnattributed,
     reconciliationPct,
     minersEnumerated: miners.length,
     minerCount: owed.length,

@@ -14,21 +14,26 @@ const CONTRACT_LABELS: Record<string, string> = {
   "0x791229e3ebd6cfdc3d8157f48722684173c29ad9": "SLVR Token",
 
   // Grid Mining / game
-  "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71": "Grid Mining",
-  "0x284eb4016305fa7fbc162fb68f27227271001c7f": "Grid Mining (Legacy)",
+  "0xa1e5213505772b195fd7ae3b4a6b27b58cf72a3d": "Grid Mining",
+  "0x2070b4b0c57eaf070cf86cd8321a6054f3d25260": "Miner State Vault",
+  "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71": "Grid Mining (Legacy)",
+  "0x284eb4016305fa7fbc162fb68f27227271001c7f": "Grid Mining (Original)",
   "0x8c756b6738bdd687c3376c748c63419be0412fdd": "Genesis Game",
 
   // Automation
-  "0x5fd69ee67472495cdc0be784898647782e073ff5": "AutoCommit V3",
+  "0x34dd8699e4e9cb6bba58e28f0233f6e23cec0387": "AutoCommit V3",
+  "0x5fd69ee67472495cdc0be784898647782e073ff5": "AutoCommit V3 (Legacy)",
   "0x314c8d5755468224ac60c36fb5494f0d7d5abb3b": "AutoCommit V2",
   "0x1399115fcf2a9c41e5080547a9214156a4bf8a45": "AutoCommit V1",
 
   // Claim / locker
-  "0x83f84c5d431a986a1ab209f902b954b5d3550d8c": "ClaimLocker V2",
+  "0x44b3d5b8d31251d49ca4c88b6a82594947693a5c": "ClaimLocker V2",
+  "0x83f84c5d431a986a1ab209f902b954b5d3550d8c": "ClaimLocker V2 (Legacy)",
   "0x2fd3be762eb9d8ee293dd923d8809dbd3d653dd7": "ClaimLocker V1",
 
   // Multi-claim
-  "0x9f34a8561f97e388d4a1589c1d046c61d6915323": "MultiClaim",
+  "0x740a66fc9201962f39802d924d4c2347cdf823a1": "MultiClaim",
+  "0x9f34a8561f97e388d4a1589c1d046c61d6915323": "MultiClaim (Legacy)",
   "0x32783f1301147f6fb45c049a9546819655f81415": "MultiClaim V1",
 
   // Protocol

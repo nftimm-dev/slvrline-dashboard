@@ -1,8 +1,8 @@
 /**
  * GET /api/lottery
  *
- * Live GridLottery V2 snapshot: current round, jackpot (ETH), unclaimed rewards
- * pool (SLVR), cumulative refined (SLVR), and the current refining index.
+ * Live current-lottery snapshot plus unclaimed rewards, cumulative refined, and
+ * refining index from the permanent SlvrMinerVault.
  * Cache: 30-second in-process TTL.
  */
 import { NextResponse } from "next/server";

@@ -126,9 +126,6 @@ export default function UnclaimedMinersSection() {
     },
   ];
 
-  // Reconciliation phrasing — honest about the small lazy-checkpoint residual.
-  const reconOk = data ? data.reconciliationPct <= 2 : true;
-
   return (
     <section style={{ marginTop: 40 }}>
       <div style={{ marginBottom: 16 }}>
@@ -151,8 +148,8 @@ export default function UnclaimedMinersSection() {
             lineHeight: 1.5,
           }}
         >
-          The Grid Mining contract holds the unclaimed mining-rewards pool. This
-          is who is owed it — each miner&apos;s current unclaimed balance from{" "}
+          The permanent Miner State Vault holds the active unclaimed mining-rewards
+          pool. This is who is owed its attributed portion — each miner&apos;s balance from{" "}
           <code style={{ fontFamily: "var(--font-mono)" }}>
             getMinerState().rewardsSlvr
           </code>
@@ -188,16 +185,12 @@ export default function UnclaimedMinersSection() {
           loading={isLoading && !data}
         />
         <StatCard
-          label="RECONCILES"
-          primary={
-            data
-              ? `${reconOk ? "±" : ""}${data.reconciliationPct.toFixed(2)}%`
-              : "—"
-          }
+          label="RESERVED"
+          primary={data ? slvr(data.reservedUnattributed, 1) : "—"}
           secondary={
             data
-              ? `${data.reconciliationResidual >= 0 ? "+" : ""}${data.reconciliationResidual.toFixed(2)} SLVR gap`
-              : "pool vs sum"
+              ? `${data.reconciliationPct.toFixed(2)}% not yet attributed`
+              : "resolved, awaiting claims"
           }
           colorVar="--color-price"
           loading={isLoading && !data}
@@ -266,29 +259,31 @@ export default function UnclaimedMinersSection() {
           lineHeight: 1.6,
         }}
       >
-        Source: Robinhood Chain RPC. Miner addresses are enumerated from{" "}
-        <code style={{ fontFamily: "var(--font-mono)" }}>BetPlaced</code> events on
-        Grid Mining V2; each miner&apos;s unclaimed balance is{" "}
+        Source: Robinhood Chain RPC plus the protocol event index. Candidate addresses
+        come from its MinerAccount set, with raw vault{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>Credited</code> /{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>MigratedIn</code> logs scanned
+        from the indexer&apos;s exact head to the chain head;
+        each miner&apos;s balance is then independently re-read on-chain from{" "}
         <code style={{ fontFamily: "var(--font-mono)" }}>rewardsSlvr</code> from{" "}
         <code style={{ fontFamily: "var(--font-mono)" }}>getMinerState()</code>,
-        read via Multicall3. The sum of per-miner balances reconciles to{" "}
+        read via Multicall3. Per-miner balances plus{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>reserved()</code> reconcile to{" "}
         <code style={{ fontFamily: "var(--font-mono)" }}>totalUnclaimed()</code>{" "}
         {data ? (
           <>
-            within{" "}
+            exactly; the reserved portion is{" "}
             <strong>
               {data.reconciliationPct.toFixed(2)}%
             </strong>{" "}
-            ({data.reconciliationResidual >= 0 ? "+" : ""}
-            {data.reconciliationResidual.toFixed(2)} SLVR)
+            ({data.reconciliationResidual.toFixed(2)} SLVR)
           </>
         ) : (
           "closely"
         )}
-        . The small residual is the contract&apos;s lazy checkpointing — the pool
-        grows for every winner at round resolution, but a winner&apos;s personal
-        balance only materialises once they interact, so very recent winners are in
-        the aggregate before they appear here. A separate refining bonus (
+        . Reserved SLVR is emitted rewards from resolved rounds whose winners have
+        not yet claimed, so
+        they cannot be attributed to an address yet. A separate refining bonus (
         <code style={{ fontFamily: "var(--font-mono)" }}>refinedAccrued</code>) is
         tracked per miner but is not part of this pool. Cached 5 min.
       </p>

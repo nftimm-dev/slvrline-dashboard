@@ -18,9 +18,9 @@ import { getDb } from "@/lib/db";
 type Task = { key: string; run: () => Promise<unknown> };
 
 const TASKS: Task[] = [
-  { key: "mining_unclaimed", run: getMiningUnclaimed },
+  { key: "mining_unclaimed_vault_v1", run: getMiningUnclaimed },
   { key: "growthfund", run: getGrowthFundData },
-  { key: "holders_economic", run: getEconomicHoldersData },
+  { key: "holders_economic_vault_v1", run: getEconomicHoldersData },
 ];
 
 async function main() {

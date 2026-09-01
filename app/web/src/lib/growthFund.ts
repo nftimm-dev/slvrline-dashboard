@@ -25,7 +25,7 @@ export const GROWTH_FUND_BUYER = "0xec8c0A41F4F8ff291E111DB988D266BBF3F4eE3a";
 // The Growth Fund's ETH war chest — staking rewards accumulate here and are drawn
 // down to fund on-market buybacks.
 export const GROWTH_RECIPIENT = "0x4444479B89b684e79392924B3A70BE03733190dE";
-const LOTTERY_V2 = "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71";
+const CURRENT_LOTTERY = "0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D";
 const CURRENT_ROUND_SEL = "0x9cbe5efd"; // currentRoundId()
 const SLVR_PER_ROUND_TO_GF = 0.04; // 4% of the 1.12 SLVR minted per round
 // veSLVR staking rewards claimable on the Growth Fund's locked position (tokenId 2).
@@ -124,7 +124,7 @@ export async function getGrowthFundData(): Promise<GrowthFundData> {
   const [transfers, spent, roundHex, market, waiting] = await Promise.all([
     getAddressTokenTransfers(GROWTH_FUND_BUYER, SLVR_TOKEN_ADDRESS),
     getAddressNativeSpent(GROWTH_FUND_BUYER),
-    ethCall(LOTTERY_V2, CURRENT_ROUND_SEL).catch(() => null),
+    ethCall(CURRENT_LOTTERY, CURRENT_ROUND_SEL).catch(() => null),
     getMarketData().catch(() => null),
     getEthWaiting().catch(() => ({ ethWaiting: 0, recipientEth: 0, buyerEth: 0, claimableEth: 0 })),
   ]);

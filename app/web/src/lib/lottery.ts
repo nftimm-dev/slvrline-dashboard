@@ -1,5 +1,5 @@
 /**
- * GridLottery V2 live snapshot via eth_call.
+ * Current Grid Mining + permanent miner-vault snapshot via eth_call.
  *
  * currentRoundId()  0x9cbe5efd
  * jackpot()         0x6b31ee01 → jackpot contract address; ETH via eth_getBalance
@@ -18,7 +18,8 @@ import {
   decodeAddress,
 } from "./rpc";
 
-const LOTTERY_V2 = "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71";
+const CURRENT_LOTTERY = "0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D";
+const MINER_VAULT = "0x2070b4B0c57EaF070CF86cD8321a6054f3D25260";
 
 const CURRENT_ROUND_ID_SEL = "0x9cbe5efd";
 const JACKPOT_SEL = "0x6b31ee01";
@@ -32,6 +33,7 @@ const CACHE_KEY = "lottery:snapshot";
 export interface LotteryData {
   roundId: number;
   jackpotAddress: string | null;
+  minerStateAddress: string;
   jackpotEth: number;
   minerIndex: number; // human (WAD-scaled)
   minerIndexRaw: string;
@@ -46,11 +48,11 @@ const WAD = 1e18;
 async function fetchLottery(): Promise<LotteryData> {
   const [roundHex, jackpotHex, minerHex, unclaimedHex, refinedHex] =
     await Promise.all([
-      ethCall(LOTTERY_V2, CURRENT_ROUND_ID_SEL),
-      ethCall(LOTTERY_V2, JACKPOT_SEL).catch(() => "0x"),
-      ethCall(LOTTERY_V2, MINER_INDEX_SEL),
-      ethCall(LOTTERY_V2, TOTAL_UNCLAIMED_SEL),
-      ethCall(LOTTERY_V2, TOTAL_REFINED_SEL),
+      ethCall(CURRENT_LOTTERY, CURRENT_ROUND_ID_SEL),
+      ethCall(CURRENT_LOTTERY, JACKPOT_SEL).catch(() => "0x"),
+      ethCall(MINER_VAULT, MINER_INDEX_SEL),
+      ethCall(MINER_VAULT, TOTAL_UNCLAIMED_SEL),
+      ethCall(MINER_VAULT, TOTAL_REFINED_SEL),
     ]);
 
   const roundId = Number(decodeUint256(roundHex));
@@ -73,6 +75,7 @@ async function fetchLottery(): Promise<LotteryData> {
   return {
     roundId,
     jackpotAddress,
+    minerStateAddress: MINER_VAULT,
     jackpotEth: Number(jackpotWei) / WAD,
     minerIndex: Number(minerIndexRaw) / WAD,
     minerIndexRaw: minerIndexRaw.toString(),

@@ -7,11 +7,10 @@ import { useHistory } from "@/hooks/useHistory";
 import type { RangeKey } from "@/hooks/useHistory";
 import ScreenshotStamp from "@/components/analytics/ScreenshotStamp";
 
-// The V2 minerIndex reset to 0 at the 22 Jul migration, so the trailing-24h APR
-// reads astronomically high for the first ~3 days while the window fills, then
-// settles. Start the chart on 25 Jul so it shows the real, settled rate instead
-// of being dominated by that launch decay.
-const DIVIDENDS_START = Date.parse("2026-07-25T00:00:00Z");
+// Miner state moved to the permanent vault in the round-33,500 migration. Its
+// accumulator is independent of the retired lottery's, so never stitch the two.
+// Start after the new trailing-24h window has filled.
+const DIVIDENDS_START = Date.parse("2026-08-14T18:09:38Z");
 
 export default function AprChartSection() {
   const [range, setRange] = useState<RangeKey>("all");
@@ -34,7 +33,7 @@ export default function AprChartSection() {
         >
           Dividends APR{" "}
           <span style={{ fontSize: "0.75rem", fontWeight: 400, color: "var(--color-silver-400)" }}>
-            · 24h rolling · since 25 Jul
+            · 24h rolling · Miner Vault
           </span>
         </h2>
         <TimeRangeSelector value={range} onChange={setRange} />

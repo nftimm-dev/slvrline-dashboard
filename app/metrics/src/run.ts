@@ -108,7 +108,7 @@ export async function computeAndWrite(): Promise<void> {
         block_window_start: apr.blockWindowStart?.toString() ?? null,
         ts_window_start: apr.tsWindowStart?.toString() ?? null,
         data_status: apr.dataStatus,
-        basis: "v2",
+        basis: "miner_vault",
         method: "trailing_24h",
         window_hours: 24,
         source: "archival_eth_call",
@@ -471,18 +471,18 @@ export async function computeAndWrite(): Promise<void> {
 
 async function crossCheckMinerIndex(): Promise<void> {
   // Cross-check: compare on-chain minerIndex against secondary RPC (both should agree)
-  // The Goldsky subgraph URL may be unavailable — fall back to dual-RPC agreement check.
-  const { archivalCall: rpcCall, decodeUint256: decode } = await import("./rpc");
+  // The vault is cross-checked directly across both independent RPC paths.
+  const { decodeUint256: decode } = await import("./rpc");
   const { RPC_PRIMARY, RPC_SECONDARY } = await import("./constants");
 
-  const LOTTERY_V2 = "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71";
+  const MINER_VAULT = "0x2070b4B0c57EaF070CF86cD8321a6054f3D25260";
   const SEL = "0x9806b4d2";
 
   const makeCall = async (rpc: string): Promise<bigint> => {
     const resp = await fetch(rpc, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", method: "eth_call", params: [{ to: LOTTERY_V2, data: SEL }, "latest"], id: 1 }),
+      body: JSON.stringify({ jsonrpc: "2.0", method: "eth_call", params: [{ to: MINER_VAULT, data: SEL }, "latest"], id: 1 }),
     });
     const data = (await resp.json()) as { result?: string };
     return decode(data.result ?? "0x");
@@ -502,37 +502,7 @@ async function crossCheckMinerIndex(): Promise<void> {
       `[metrics][CROSS-CHECK] minerIndex = ${(Number(primaryIndex) / 1e18).toFixed(6)} (${primaryIndex})`
     );
   } catch (e) {
-    // Try Goldsky subgraph as fallback
-    const SUBGRAPH_URLS = [
-      "https://api.goldsky.com/api/public/project_clssuo7gskzl301ub3w8ca3n7/subgraphs/slvr-robinhood/1.7.0/gn",
-      "https://api.goldsky.com/api/public/project_cm8pqy56afmuc01u48xzn8ysd/subgraphs/slvr-robinhood/1.7.0/gn",
-    ];
-    let subgraphChecked = false;
-    for (const url of SUBGRAPH_URLS) {
-      try {
-        const sgResp = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: `{minerIndexUpdateds(orderBy:blockNumber,orderDirection:desc,first:1){newIndex}}` }),
-        });
-        const sgData = (await sgResp.json()) as { data?: { minerIndexUpdateds?: Array<{ newIndex: string }> } };
-        const latest = sgData?.data?.minerIndexUpdateds?.[0];
-        if (latest) {
-          const onChainHex = await rpcCall(LOTTERY_V2, SEL, "latest");
-          const onChain = decode(onChainHex);
-          const sgIndex = BigInt(latest.newIndex);
-          const match = sgIndex === onChain ? "EXACT_MATCH" : `MISMATCH`;
-          console.log(`[metrics][CROSS-CHECK] minerIndex subgraph=${sgIndex} on-chain=${onChain} => ${match}`);
-          subgraphChecked = true;
-          break;
-        }
-      } catch {
-        // try next
-      }
-    }
-    if (!subgraphChecked) {
-      console.log("[metrics][CROSS-CHECK] Subgraph unavailable; dual-RPC cross-check failed:", String(e));
-    }
+    console.log("[metrics][CROSS-CHECK] Dual-RPC vault check failed:", String(e));
   }
 }
 

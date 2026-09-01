@@ -9,7 +9,25 @@ import {
   dividendIndexUpdate,
   dividendFeeApplied,
 } from "ponder:schema";
-import { CHAIN_ID, MIGRATION_ROUND, V1_ADDRESS, ZERO_ADDRESS } from "./lib/constants";
+import {
+  CHAIN_ID,
+  MIGRATION_ROUND,
+  MINER_VAULT_MIGRATION_ROUND,
+  V1_ADDRESS,
+  V2_ADDRESS,
+  V3_ADDRESS,
+  ZERO_ADDRESS,
+} from "./lib/constants";
+
+function isCanonicalLotteryRound(address: string, roundId: bigint): boolean {
+  const normalized = address.toLowerCase();
+  if (normalized === V1_ADDRESS.toLowerCase()) return roundId < MIGRATION_ROUND;
+  if (normalized === V2_ADDRESS.toLowerCase()) {
+    return roundId >= MIGRATION_ROUND && roundId < MINER_VAULT_MIGRATION_ROUND;
+  }
+  if (normalized === V3_ADDRESS.toLowerCase()) return roundId >= MINER_VAULT_MIGRATION_ROUND;
+  return false;
+}
 
 // --- Phase 2 handler registrations ---
 import "./handlers/veEscrow";
@@ -95,10 +113,7 @@ ponder.on("GridLotteryV1:BetPlaced", async ({ event, context }) => {
 });
 
 ponder.on("GridLotteryV1:RoundResolved", async ({ event, context }) => {
-  const isV1 = event.log.address.toLowerCase() === V1_ADDRESS.toLowerCase();
-  const isCanonical = isV1
-    ? event.args.roundId < MIGRATION_ROUND
-    : event.args.roundId >= MIGRATION_ROUND;
+  const isCanonical = isCanonicalLotteryRound(event.log.address, event.args.roundId);
 
   // Store null when singleMinerWinner is address(0)
   const winner =
@@ -206,10 +221,7 @@ ponder.on("GridLotteryV2:BetPlaced", async ({ event, context }) => {
 });
 
 ponder.on("GridLotteryV2:RoundResolved", async ({ event, context }) => {
-  const isV1 = event.log.address.toLowerCase() === V1_ADDRESS.toLowerCase();
-  const isCanonical = isV1
-    ? event.args.roundId < MIGRATION_ROUND
-    : event.args.roundId >= MIGRATION_ROUND;
+  const isCanonical = isCanonicalLotteryRound(event.log.address, event.args.roundId);
 
   const winner =
     event.args.singleMinerWinner === ZERO_ADDRESS
@@ -291,6 +303,75 @@ ponder.on("GridLotteryV2:RefiningFeeApplied", async ({ event, context }) => {
       fee:             event.args.fee,
       newIndex:        event.args.newIndex,
       totalUnclaimed:  event.args.totalUnclaimed,
+    })
+    .onConflictDoNothing();
+});
+
+// ── Grid Lottery V3 handlers (round 33,500+; miner state is in the vault) ────
+
+ponder.on("GridLotteryV3:BetPlaced", async ({ event, context }) => {
+  await context.db
+    .insert(lotteryBet)
+    .values({
+      chainId:         CHAIN_ID,
+      contractAddress: event.log.address,
+      txHash:          event.transaction.hash,
+      logIndex:        event.log.logIndex,
+      blockNumber:     event.block.number,
+      blockTime:       Number(event.block.timestamp),
+      roundId:         event.args.roundId,
+      beneficiary:     event.args.beneficiary,
+      total:           event.args.total,
+      squares:         Array.from(event.args.squares),
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("GridLotteryV3:RoundResolved", async ({ event, context }) => {
+  const winner =
+    event.args.singleMinerWinner === ZERO_ADDRESS
+      ? null
+      : event.args.singleMinerWinner;
+
+  await context.db
+    .insert(lotteryRound)
+    .values({
+      chainId:            CHAIN_ID,
+      contractAddress:    event.log.address,
+      roundId:            event.args.roundId,
+      resolvedTxHash:     event.transaction.hash,
+      resolvedLogIndex:   event.log.logIndex,
+      blockNumber:        event.block.number,
+      blockTime:          Number(event.block.timestamp),
+      winningSquare:      Number(event.args.winningSquare),
+      jackpotHit:         event.args.jackpotHit,
+      singleMinerRound:   event.args.singleMinerRound,
+      singleMinerWinner:  winner,
+      winnerTotal:        event.args.winnerTotal,
+      potForWinners:      event.args.potForWinners,
+      slvrForWinners:     event.args.slvrForWinners,
+      totalUnclaimedSlvr: event.args.totalUnclaimedSlvr,
+      isCanonical:        isCanonicalLotteryRound(event.log.address, event.args.roundId),
+    })
+    .onConflictDoNothing();
+});
+
+ponder.on("GridLotteryV3:Claimed", async ({ event, context }) => {
+  await context.db
+    .insert(lotteryClaim)
+    .values({
+      chainId:         CHAIN_ID,
+      contractAddress: event.log.address,
+      txHash:          event.transaction.hash,
+      logIndex:        event.log.logIndex,
+      blockNumber:     event.block.number,
+      blockTime:       Number(event.block.timestamp),
+      roundId:         event.args.roundId,
+      user:            event.args.user,
+      nativeOut:       event.args.nativeOut,
+      slvrOut:         event.args.slvrOut,
+      refinedOut:      event.args.refinedOut,
+      refiningFee:     event.args.refiningFee,
     })
     .onConflictDoNothing();
 });

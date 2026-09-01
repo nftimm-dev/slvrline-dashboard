@@ -26,7 +26,7 @@ If everything else fails, the headline vitals must be **correct, live, and indep
 
 **Indexer & data**
 - [ ] Index the SLVR production contracts on Robinhood Chain into our own datastore, keyed by `chain_id + address`
-- [ ] Preserve full history including pre-migration contracts, splitting lottery events at round `12,500` so rounds are neither missed nor double-counted
+- [ ] Preserve full history across lottery generations, splitting events at rounds `12,500` and `33,500` so rounds are neither missed nor double-counted
 - [ ] Keep the index current near chain head so "live" headline numbers are fresh
 - [ ] Serve computed metrics to the frontend via our own API
 
@@ -84,10 +84,11 @@ If everything else fails, the headline vitals must be **correct, live, and indep
 | Contract | Address | Purpose |
 |---|---|---|
 | SLVR token | `0x791229E3EbD6CFdC3D8157f48722684173C29aD9` | ERC-20; supply, tax, emissions, burns, routing |
-| Grid Lottery | `0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71` | Current mining/game: rounds, bets, winners, emissions |
-| AutoCommit V3 | `0x5FD69EE67472495CDc0BE784898647782E073Ff5` | Automated recurring bet plans |
-| ClaimLocker V2 | `0x83F84C5d431a986a1AB209F902B954b5D3550d8c` | Claims winnings and locks SLVR into vote escrow |
-| MultiClaim | `0x9F34a8561f97E388D4A1589c1D046C61d6915323` | Batches multiple game claims |
+| Grid Lottery | `0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D` | Current mining/game generation: rounds 33,500+ |
+| Miner State Vault | `0x2070b4B0c57EaF070CF86cD8321a6054f3D25260` | Permanent unrefined SLVR, dividends, and refining clocks |
+| AutoCommit V3 | `0x34DD8699E4E9CB6bBA58e28F0233F6e23CeC0387` | Automated recurring bet plans |
+| ClaimLocker V2 | `0x44B3D5b8D31251D49Ca4c88b6a82594947693A5C` | Claims winnings and locks SLVR into vote escrow |
+| MultiClaim | `0x740A66fc9201962f39802d924D4C2347cdf823A1` | Batches multiple game claims |
 | Drand provider | `0x1F3B0992FaBCF77d4df7Baa416b9185e464d58f3` | Randomness for round resolution |
 | Jackpot | `0x24B723e2Da172961F60Cd6a4699654c89D4aC6cd` | Holds/pays the protocol jackpot |
 | Game Registry | `0x3942CdA122eF303f47d4509A6Be57736E323cEE4` | Registry/status for all lottery deployments |
@@ -116,15 +117,19 @@ If everything else fails, the headline vitals must be **correct, live, and indep
 | Uniswap V4 StateView | `0xf3334192d15450cdd385c8b70e03f9a6bd9e673b` |
 | Uniswap V4 Quoter | `0x8dc178efb8111bb0973dd9d722ebeff267c98f94` |
 
-**Historical / inactive contracts (preserve for historical analytics).** Production contracts changed at round `12,500`, configured cutover **2026-07-23 01:09:24 UTC**:
+**Historical / inactive contracts (preserve for historical analytics).** Lottery generations changed at rounds `12,500` and `33,500`:
 
 | Contract | Address | Status |
 |---|---|---|
-| Previous Grid Lottery | `0x284Eb4016305Fa7FbC162Fb68F27227271001c7f` | Paused in registry |
+| Previous Grid Lottery | `0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71` | Gas-optimized generation, rounds 12,500–33,499 |
+| Original Grid Lottery | `0x284Eb4016305Fa7FbC162Fb68F27227271001c7f` | Original generation, rounds 0–12,499 |
 | Genesis game | `0x8C756b6738bdd687c3376C748C63419be0412FDd` | Retired; unverified |
 | AutoCommit V1 | `0x1399115FcF2a9C41e5080547A9214156A4Bf8a45` | Superseded |
+| AutoCommit V3 (previous) | `0x5FD69EE67472495CDc0BE784898647782E073Ff5` | Superseded at round 33,500 |
 | AutoCommit V2 | `0x314c8D5755468224AC60c36FB5494F0D7D5Abb3B` | Superseded |
+| ClaimLocker V2 (previous) | `0x83F84C5d431a986a1AB209F902B954b5D3550d8c` | Superseded at round 33,500 |
 | ClaimLocker V1 | `0x2fD3BE762eb9d8eE293dD923D8809Dbd3D653dd7` | Superseded |
+| MultiClaim (previous) | `0x9F34a8561f97E388D4A1589c1D046C61d6915323` | Superseded at round 33,500 |
 | MultiClaim V1 | `0x32783f1301147f6fb45c049a9546819655F81415` | Superseded |
 | Liquidity Zap V1 | `0x2674BCcea310b1Fa96D9a6c6E156aF83709a41D6` | Superseded |
 | Unactivated lottery candidate | `0xC805B8f8Dd2ee4Ab70d2Ef52503A6C2bB0A97b5f` | Registry `Pending` |
@@ -152,7 +157,7 @@ If everything else fails, the headline vitals must be **correct, live, and indep
 
 ## Constraints
 
-- **Data integrity**: Metrics must be independently computed from indexed chain data and correct. The 500k cap, round-12,500 migration split, and `chain_id + address` keying are hard correctness requirements.
+- **Data integrity**: Metrics must be independently computed from indexed chain data and correct. The 500k cap, round-12,500 and round-33,500 migration splits, permanent-vault state, and `chain_id + address` keying are hard correctness requirements.
 - **Freshness**: Headline numbers must feel live (indexer keeps up near chain head); historical charts can tolerate slightly higher latency.
 - **Tech stack**: Not yet decided — research will recommend the indexer framework, datastore, API, and frontend stack. No strong constraint imposed by the user beyond "sensible defaults."
 - **Read-only**: The site never signs transactions or interacts with the protocol; it only reads and displays.
@@ -166,9 +171,9 @@ If everything else fails, the headline vitals must be **correct, live, and indep
 | Build our own indexer + datastore (vs. only reading the existing Goldsky subgraph) | Custom metrics, full history, and independence from the protocol's own infra; the existing subgraph remains a reference/cross-check and possible bootstrap | — Pending |
 | Global-only analytics for v1; wallet-connect deferred to v2 | Ships faster and simpler; personal dashboards are additive | — Pending |
 | Its own "silver" brand identity (not a clone of slvr.fun) | Independent source-of-truth positioning; DefiLlama/Dune-class analytics feel | — Pending |
-| Split lottery events at round 12,500; key by `chain_id + address` | Prevents missing/double-counted rounds across the 2026-07-23 contract migration | — Pending |
+| Split lottery events at rounds 12,500 and 33,500; key by `chain_id + address` | Prevents missing/double-counted rounds across contract generations; miner state moves to the permanent vault at the second cutover | — Pending |
 | Exclude jackpot-insurance analytics from v1 | Contract source unverified; avoid indexing an untrusted surface | — Pending |
 | Hero = a vitals strip of live headline stats, charts below | User wants an at-a-glance protocol health view that's screenshot-worthy | — Pending |
 
 ---
-*Last updated: 2026-07-24 after initialization*
+*Last updated: 2026-09-01 after the round-33,500 Miner State Vault migration*
