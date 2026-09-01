@@ -2,10 +2,9 @@
  * GET /api/mining-unclaimed
  *
  * "Unclaimed SLVR by miner" — a per-miner breakdown of the Grid Mining
- * unclaimed-rewards pool. Miner addresses are enumerated from BetPlaced events on
- * GridLottery V2, then getMinerState(miner) is Multicall3-batched to read each
- * miner's current unclaimed SLVR (rewardsSlvr). The sum reconciles to
- * totalUnclaimed(); the residual (lazy-checkpoint gap) is reported explicitly.
+ * active unclaimed-rewards pool. Miner addresses are enumerated from SlvrMinerVault
+ * Credited/MigratedIn events, then getMinerState(miner) is Multicall3-batched.
+ * The per-miner sum plus the vault's reserved amount reconciles to totalUnclaimed().
  *
  * Cache: 5-minute in-process TTL.
  */
@@ -20,14 +19,14 @@ export async function GET() {
     // Serverless-safe: the cron worker precomputes this ~33s enumeration into
     // metrics.cache. Read it back instantly; only compute live if the cache is
     // cold (e.g. local dev before the worker has run).
-    const cached = await readDbCache<Record<string, unknown>>("mining_unclaimed");
+    const cached = await readDbCache<Record<string, unknown>>("mining_unclaimed_vault_v1");
     const data = cached
       ? { ...cached.data, cached_at: cached.updatedAt }
       : await getMiningUnclaimed();
     return NextResponse.json(data, {
       headers: {
         "Cache-Control": "no-store",
-        "X-Data-Sources": "robinhood-rpc,multicall3",
+        "X-Data-Sources": "goldsky-address-index,robinhood-rpc,multicall3",
         "X-Cache": cached ? "hit" : "miss",
       },
     });

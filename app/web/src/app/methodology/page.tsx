@@ -68,9 +68,9 @@ export default function MethodologyPage() {
           <div>
             <p style={{ color: "var(--color-silver-300)", fontSize: "0.875rem", marginBottom: 12 }}>
               The annualized yield earned by miners who hold <em>unclaimed</em>{" "}
-              SLVR mining rewards in Grid Mining. Funded by a 10% refining
-              fee on every miner&apos;s claim — redistributed to all remaining
-              unclaimed holders.
+              SLVR mining rewards in the Miner State Vault. Funded by the refining
+              fee when miners cash out — currently 20% on fresh rewards, decaying
+              to 10% over 24 hours — and redistributed to remaining unclaimed holders.
             </p>
 
             <div className="mb-4">
@@ -100,10 +100,9 @@ export default function MethodologyPage() {
               >
                 <code>{`APR = ( minerIndex(t) − minerIndex(t − W) ) / 1e18 × ( 31,536,000 / W )
 
-W = min(604800, contract_age_seconds_at_t)
-  = 7-day cap, clamped to contract age
+W = 86,400 seconds (trailing 24 hours)
 
-Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
+Annualization: Δindex / 1e18 × 365`}</code>
               </pre>
             </div>
 
@@ -151,9 +150,8 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
                   W
                 </dt>
                 <dd style={{ color: "var(--color-silver-300)" }}>
-                  min(604,800s, contract_age_seconds) — 7-day cap, shrinks to
-                  actual contract age while &lt; 7 days. Labeled
-                  &quot;early&quot; when W &lt; 7d.
+                  86,400s — a trailing 24-hour window. A new accumulator is
+                  withheld as &quot;early&quot; until the first full window exists.
                 </dd>
               </div>
               <div className="flex gap-2">
@@ -193,16 +191,13 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
                 marginBottom: 6,
               }}
             >
-              Early / High Magnitude Caveat
+              Short-window caveat
             </div>
             <p style={{ fontSize: "0.8125rem", color: "var(--color-silver-300)", lineHeight: 1.6 }}>
-              V2&apos;s <code className="font-mono" style={{ fontSize: "0.75rem" }}>minerIndex</code>{" "}
-              accumulator reset to 0 at block 16,764,101 (2026-07-22). The current
-              window W is clamped to ~2–3 days instead of 7, so annualizing a
-              short window amplifies any variation. The formula is mechanically
-              exact — but yields of 30,000%+ reflect early/volatile conditions on
-              a small pool (~495 SLVR unclaimed), not steady-state returns.
-              The standard 7-day window becomes available ~2026-07-29.
+              A 24-hour window responds quickly to refining activity and can remain
+              volatile, especially when the unclaimed pool is small. The formula is
+              mechanically exact for a continuously unclaimed position, but the
+              annualized rate is not a promise of future returns.
             </p>
           </div>
 
@@ -217,15 +212,13 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
                 marginBottom: 8,
               }}
             >
-              V1 → V2 Migration (block 16,764,101)
+              Miner-state generations
             </div>
             <p style={{ fontSize: "0.8125rem", color: "var(--color-silver-300)", lineHeight: 1.6 }}>
-              GridLotteryV1 and GridLotteryV2 maintain <strong>separate,
-              independent</strong> <code className="font-mono" style={{ fontSize: "0.75rem" }}>minerIndex</code>{" "}
-              accumulators. Do not stitch V1 and V2 index values — the delta
-              APR within each contract is meaningful; the cross-contract delta
-              is not. Historical charts show a visible reset at block 16,764,101;
-              this is correct and expected.
+              The original and gas-optimized lotteries each kept their own miner
+              state. At round 33,500, miner state moved to a separate, permanent
+              vault. All three <code className="font-mono" style={{ fontSize: "0.75rem" }}>minerIndex</code>{" "}
+              accumulators are independent; an APR window must never cross a reset.
             </p>
             <div
               className="overflow-x-auto mt-3"
@@ -240,7 +233,7 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
               >
                 <thead>
                   <tr style={{ backgroundColor: "var(--color-silver-900)" }}>
-                    {["Sample block", "Active contract", "Window start clamped to"].map((h) => (
+                    {["Sample block", "Miner-state source", "Window start clamped to"].map((h) => (
                       <th
                         key={h}
                         style={{
@@ -262,16 +255,25 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
                     </td>
                     <td style={{ padding: "8px 12px", color: "var(--color-silver-300)" }}>GridLotteryV1</td>
                     <td style={{ padding: "8px 12px", color: "var(--color-silver-300)", fontFamily: "var(--font-mono)", fontSize: "0.6875rem" }}>
-                      max(V1 deploy, block − 7d)
+                      max(V1 deploy, block − 24h)
                     </td>
                   </tr>
                   <tr>
                     <td style={{ padding: "8px 12px", color: "var(--color-silver-300)", fontFamily: "var(--font-mono)", fontSize: "0.6875rem" }}>
-                      &gt;= 16,764,101
+                      16,764,101–35,594,697
                     </td>
                     <td style={{ padding: "8px 12px", color: "var(--color-silver-300)" }}>GridLotteryV2</td>
                     <td style={{ padding: "8px 12px", color: "var(--color-silver-300)", fontFamily: "var(--font-mono)", fontSize: "0.6875rem" }}>
-                      max(16,764,101, block − 7d)
+                      max(16,764,101, block − 24h)
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style={{ padding: "8px 12px", color: "var(--color-silver-300)", fontFamily: "var(--font-mono)", fontSize: "0.6875rem" }}>
+                      &gt;= 35,594,698
+                    </td>
+                    <td style={{ padding: "8px 12px", color: "var(--color-silver-300)" }}>SlvrMinerVault</td>
+                    <td style={{ padding: "8px 12px", color: "var(--color-silver-300)", fontFamily: "var(--font-mono)", fontSize: "0.6875rem" }}>
+                      max(35,594,698, block − 24h)
                     </td>
                   </tr>
                 </tbody>
@@ -282,19 +284,19 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
           <div className="flex flex-wrap gap-4">
             <div>
               <div style={{ fontSize: "0.6875rem", color: "var(--color-silver-400)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
-                Live contract (V2)
+                Live miner-state vault
               </div>
               <AddressLabel
-                address="0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71"
+                address="0x2070b4B0c57EaF070CF86cD8321a6054f3D25260"
                 showFull
               />
             </div>
             <div>
               <div style={{ fontSize: "0.6875rem", color: "var(--color-silver-400)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
-                Historical contract (V1)
+                Current Grid Mining
               </div>
               <AddressLabel
-                address="0x284Eb4016305Fa7FbC162Fb68F27227271001c7f"
+                address="0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D"
                 showFull
               />
             </div>
@@ -305,17 +307,17 @@ Annualization: Δindex / 1e18 × 52.18   (52.18 = weeks/year)`}</code>
               Cross-check
             </div>
             <p style={{ fontSize: "0.8125rem", color: "var(--color-silver-300)" }}>
-              Index values verified against{" "}
+              Index values are read directly at both window boundary blocks through
+              archive-capable Robinhood Chain RPCs. The vault contract is independently
+              verifiable on the{" "}
               <a
-                href="https://api.goldsky.com/api/public/project_cm5i6t6d7q2a201ur2tttbyvs/subgraphs/slvr-mainnet-subgraph/1.0.1/gn"
+                href="https://robinhoodchain.blockscout.com/address/0x2070b4B0c57EaF070CF86cD8321a6054f3D25260"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: "var(--color-accent)", textDecoration: "none" }}
               >
-                Goldsky subgraph
-              </a>{" "}
-              <code className="font-mono" style={{ fontSize: "0.75rem" }}>minerIndexUpdateds[0].newIndex</code>.
-              Confirmed exact match: <code className="font-mono" style={{ fontSize: "0.75rem" }}>1789282914952366881</code>.
+                Blockscout explorer
+              </a>.
             </p>
           </div>
         </MetricSection>
@@ -496,9 +498,9 @@ runway_months  = remaining / perDayGross / 30.44`}</code>
           <div className="flex flex-wrap gap-4">
             <div>
               <div style={{ fontSize: "0.6875rem", color: "var(--color-silver-400)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>
-                Emission source (V2)
+                Current emission source
               </div>
-              <AddressLabel address="0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71" showFull />
+              <AddressLabel address="0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D" showFull />
             </div>
           </div>
         </MetricSection>

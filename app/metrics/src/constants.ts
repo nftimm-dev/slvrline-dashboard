@@ -16,8 +16,15 @@ export const SLVR_CAP = 500_000n * WAD; // 500,000 SLVR in raw units
 // Grid Mining (contract selectors/vars keep the LOTTERY_ name — internal only)
 export const LOTTERY_V1 = "0x284Eb4016305Fa7FbC162Fb68F27227271001c7f" as const;
 export const LOTTERY_V2 = "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71" as const;
+export const LOTTERY_V3 = "0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D" as const;
+// Permanent miner-state vault introduced with the round-33,500 generation.
+// Dividends and unrefined balances live here rather than in LOTTERY_V3, so this
+// address survives future lottery upgrades.
+export const MINER_VAULT = "0x2070b4B0c57EaF070CF86cD8321a6054f3D25260" as const;
 // Block when V2 was deployed; V2's minerIndex accumulator started fresh here
 export const LOTTERY_V2_DEPLOY_BLOCK = 16_764_101n;
+export const MINER_VAULT_DEPLOY_BLOCK = 35_594_698n;
+export const LOTTERY_V3_DEPLOY_BLOCK = 35_599_521n;
 
 // Vote Escrow NFT (soulbound — all locks live here)
 export const VOTE_ESCROW = "0xd9b8FBD61033145c5496132153CE675756313B71" as const;
@@ -53,12 +60,14 @@ export const GROWTH_FUND_BUYER = "0xec8c0A41F4F8ff291E111DB988D266BBF3F4eE3a" as
 // First buy ~block 33,052,748 (2026-08-10); scan a little earlier to be safe.
 export const DEPLOY_BLOCK_GROWTHFUND = 32_000_000n;
 
-// Round-based canonical split: rounds < 12500 → V1 canonical, >= 12500 → V2 canonical
+// Round-based canonical splits.
 export const MIGRATION_ROUND = 12_500n;
+export const MINER_VAULT_MIGRATION_ROUND = 33_500n;
 
 // Deployment blocks
 export const DEPLOY_BLOCK_TOKEN = 5_574_774n;
 export const DEPLOY_BLOCK_LOTTERY_V2 = 16_764_101n;
+export const DEPLOY_BLOCK_LOTTERY_V3 = 35_599_521n;
 
 // Circulating supply exclusions — non-circulating SLVR wallets
 // These addresses hold SLVR that is not freely tradable/circulating

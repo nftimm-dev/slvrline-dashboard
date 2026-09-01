@@ -40,7 +40,14 @@ export default createConfig({
       chain: "robinhoodChain",
       address: "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71",
       startBlock: 16_764_101,
-      // No endBlock — active contract
+      // No endBlock — historical claims remain live forever.
+    },
+    GridLotteryV3: {
+      abi: GridLotteryAbi,
+      chain: "robinhoodChain",
+      address: "0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D",
+      startBlock: 35_599_521,
+      // Current round-33,500+ generation. Miner state itself lives in SlvrMinerVault.
     },
     // --- Phase 2 additions ---
     SlvrVoteEscrow: {

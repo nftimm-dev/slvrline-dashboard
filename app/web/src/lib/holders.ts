@@ -31,8 +31,8 @@ const CACHE_KEY = "holders:page";
 const CACHE_KEY_ECON = "holders:page:economic";
 const TOP_N = 25;
 
-// Grid Mining V2 — its SLVR balance is (mostly) the unclaimed-rewards pool.
-const GRID_MINING_V2 = "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71";
+// Permanent Miner Vault — its SLVR balance backs the active unclaimed-rewards pool.
+const MINER_VAULT = "0x2070b4b0c57eaf070cf86cd8321a6054f3d25260";
 // Vote Escrow NFT — its SLVR balance is the time-locked SLVR pool.
 const VOTE_ESCROW = "0xd9b8fbd61033145c5496132153ce675756313b71";
 
@@ -56,7 +56,8 @@ const BALANCE_OF_SELECTOR = "0x70a08231";
  * elsewhere on the site.
  */
 const HOLDERS_LABEL_OVERRIDES: Record<string, string> = {
-  "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71": "Unclaimed SLVR", // Grid Mining V2
+  "0x2070b4b0c57eaf070cf86cd8321a6054f3d25260": "Unclaimed SLVR", // Miner Vault
+  "0xb0cc994ce4e8fb106da9eb36e26fdd8c5f1e0c71": "Unclaimed SLVR (Legacy)", // Grid Mining V2
   "0x284eb4016305fa7fbc162fb68f27227271001c7f": "Unclaimed SLVR (Legacy)", // Grid Mining V1
 };
 
@@ -219,7 +220,7 @@ async function fetchHolders(): Promise<HoldersData> {
 /**
  * Economic holders: start from raw Blockscout balances, then reattribute the
  * pooled protocol balances back to individuals —
- *   - Grid Mining V2 unclaimed pool → per-miner rewardsSlvr (miningUnclaimed).
+ *   - Miner Vault credited pool → per-miner rewardsSlvr (miningUnclaimed).
  *   - Vote Escrow time-locked pool → per-owner NON-permanent lock amount (veLocks).
  * The pooled amount is SUBTRACTED from the contract's wallet component and ADDED
  * to each person, so the economic total equals the raw total (reattribution, not
@@ -274,9 +275,8 @@ async function fetchEconomicHolders(): Promise<HoldersData> {
     if (h.onchainName && !a.onchainName) a.onchainName = h.onchainName;
   }
 
-  // 2. Reattribute the Grid Mining V2 unclaimed pool → per miner.
-  //    Redistribute exactly SUM(per-miner rewardsSlvr); the V2 contract keeps any
-  //    residual (lazy-checkpoint gap + non-pool float), so totals reconcile.
+  // 2. Reattribute the Miner Vault's credited pool → per miner.
+  //    The vault retains its `reserved` (not-yet-attributed) amount.
   let miningRedistributed = 0;
   // allMiners is the FULL owed set (SUMs to sumMinerUnclaimed) — attribute every
   // miner, not just the top-N shown on the mining page.
@@ -287,8 +287,8 @@ async function fetchEconomicHolders(): Promise<HoldersData> {
     miningRedistributed += m.unclaimedSlvr;
   }
   {
-    const v2 = map.get(GRID_MINING_V2);
-    if (v2) v2.wallet = Math.max(0, v2.wallet - miningRedistributed);
+    const vault = map.get(MINER_VAULT);
+    if (vault) vault.wallet = Math.max(0, vault.wallet - miningRedistributed);
   }
 
   // 3. Reattribute the Vote Escrow time-locked pool → per owner.

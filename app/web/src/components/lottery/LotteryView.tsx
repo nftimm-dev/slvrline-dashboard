@@ -98,17 +98,17 @@ export default function LotteryView() {
           loading={isLoading && !data}
         />
         <StatCard
-          label="JACKPOT CONTRACT"
+          label="MINER STATE VAULT"
           primary={
-            data?.jackpotAddress ? (
+            data?.minerStateAddress ? (
               <span style={{ fontSize: "0.9375rem" }}>
-                <AddressCell address={data.jackpotAddress} />
+                <AddressCell address={data.minerStateAddress} />
               </span>
             ) : (
               "—"
             )
           }
-          secondary="ETH balance shown above"
+          secondary="unrefined SLVR + dividends"
           colorVar="--color-lottery"
           loading={isLoading && !data}
         />
@@ -156,8 +156,10 @@ export default function LotteryView() {
             Dividends APR
           </a>{" "}
           measures. The <strong>miner index</strong> is the cumulative refining
-          fee earned per 1 unclaimed SLVR (WAD-scaled), and reset to zero when V2
-          deployed. This is a live snapshot, refreshed every 30 seconds.
+          fee earned per 1 unclaimed SLVR (WAD-scaled). Since round 33,500,
+          that index and every miner&apos;s unrefined balance live in the permanent
+          Miner State Vault instead of a lottery generation. This is a live snapshot,
+          refreshed every 30 seconds.
         </p>
         {data && (
           <p

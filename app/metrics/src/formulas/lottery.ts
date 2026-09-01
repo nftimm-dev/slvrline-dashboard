@@ -11,7 +11,7 @@
  * Jackpot balance: eth_getBalance on the jackpot contract address.
  */
 
-import { LOTTERY_V2 } from "../constants";
+import { LOTTERY_V3, MINER_VAULT } from "../constants";
 import { archivalCall, decodeUint256, decodeAddress } from "../rpc";
 import { getHead } from "../block-resolver";
 
@@ -40,11 +40,11 @@ export async function computeLotteryRoundState(): Promise<LotteryRoundResult> {
   // Parallel reads
   const [roundIdHex, jackpotAddrHex, minerIndexHex, totalUnclaimedHex, totalRefinedHex] =
     await Promise.all([
-      archivalCall(LOTTERY_V2, CURRENT_ROUND_ID_SEL, block),
-      archivalCall(LOTTERY_V2, JACKPOT_SEL, block).catch(() => "0x"),
-      archivalCall(LOTTERY_V2, MINER_INDEX_SEL, block),
-      archivalCall(LOTTERY_V2, TOTAL_UNCLAIMED_SEL, block),
-      archivalCall(LOTTERY_V2, TOTAL_REFINED_SEL, block),
+      archivalCall(LOTTERY_V3, CURRENT_ROUND_ID_SEL, block),
+      archivalCall(LOTTERY_V3, JACKPOT_SEL, block).catch(() => "0x"),
+      archivalCall(MINER_VAULT, MINER_INDEX_SEL, block),
+      archivalCall(MINER_VAULT, TOTAL_UNCLAIMED_SEL, block),
+      archivalCall(MINER_VAULT, TOTAL_REFINED_SEL, block),
     ]);
 
   const roundId = Number(decodeUint256(roundIdHex));
@@ -63,7 +63,7 @@ export async function computeLotteryRoundState(): Promise<LotteryRoundResult> {
     } catch {
       // Fallback: balance of lottery itself
       try {
-        jackpotWei = await getEthBalance(LOTTERY_V2, block);
+        jackpotWei = await getEthBalance(LOTTERY_V3, block);
       } catch {
         jackpotWei = 0n;
       }

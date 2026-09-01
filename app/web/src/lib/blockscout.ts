@@ -18,6 +18,10 @@ async function fetchBlockscout<T>(path: string, retries = 3): Promise<T> {
         headers: {
           "User-Agent": "slvrline-dashboard/1.0",
           Accept: "application/json",
+          // Robinhood's Blockscout edge currently requires requests to identify
+          // the explorer frontend as their origin; without these it returns 403.
+          Origin: "https://explorer.mainnet.chain.robinhood.com",
+          Referer: "https://explorer.mainnet.chain.robinhood.com/",
         },
       });
       if (!res.ok) throw new Error(`Blockscout ${path} failed: ${res.status}`);

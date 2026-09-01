@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     let data;
     let cacheState: string | null = null;
     if (economic) {
-      const cached = await readDbCache<Record<string, unknown>>("holders_economic");
+      const cached = await readDbCache<Record<string, unknown>>("holders_economic_vault_v1");
       if (cached) {
         data = { ...cached.data, cached_at: cached.updatedAt };
         cacheState = "hit";
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
       headers: {
         "Cache-Control": "no-store",
         "X-Data-Sources": economic
-          ? "blockscout,robinhood-rpc,multicall3"
+          ? "blockscout,goldsky-address-index,robinhood-rpc,multicall3"
           : "blockscout",
         ...(cacheState ? { "X-Cache": cacheState } : {}),
       },

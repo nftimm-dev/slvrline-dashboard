@@ -15,10 +15,22 @@ const ALL_CONTRACTS: {
     status: "Production",
   },
   {
-    address: "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71",
+    address: "0xa1e5213505772B195FD7AE3b4a6b27B58Cf72A3D",
     label: "Grid Mining",
-    purpose: "Current mining/game: rounds, bets, winners, emissions",
+    purpose: "Current mining/game generation (rounds 33,500+)",
     status: "Production",
+  },
+  {
+    address: "0x2070b4B0c57EaF070CF86cD8321a6054f3D25260",
+    label: "Miner State Vault",
+    purpose: "Permanent unrefined SLVR, dividends, and refining clocks",
+    status: "Production",
+  },
+  {
+    address: "0xB0Cc994Ce4E8fb106da9Eb36e26fDd8C5f1e0c71",
+    label: "Grid Mining (Legacy)",
+    purpose: "Gas-optimized generation (rounds 12,500–33,499)",
+    status: "Historical",
   },
   {
     address: "0x284Eb4016305Fa7FbC162Fb68F27227271001c7f",
@@ -33,10 +45,16 @@ const ALL_CONTRACTS: {
     status: "Historical",
   },
   {
-    address: "0x5FD69EE67472495CDc0BE784898647782E073Ff5",
+    address: "0x34DD8699E4E9CB6bBA58e28F0233F6e23CeC0387",
     label: "AutoCommit V3",
-    purpose: "Automated recurring bet plans",
+    purpose: "Current automated recurring bet plans",
     status: "Production",
+  },
+  {
+    address: "0x5FD69EE67472495CDc0BE784898647782E073Ff5",
+    label: "AutoCommit V3 (Legacy)",
+    purpose: "Previous recurring bet plans",
+    status: "Historical",
   },
   {
     address: "0x314C8D5755468224AC60C36FB5494F0D7D5AbB3B",
@@ -51,10 +69,16 @@ const ALL_CONTRACTS: {
     status: "Historical",
   },
   {
-    address: "0x83F84C5d431a986a1AB209F902B954b5D3550d8c",
+    address: "0x44B3D5b8D31251D49Ca4c88b6a82594947693A5C",
     label: "ClaimLocker V2",
-    purpose: "Claims winnings and locks SLVR into vote escrow",
+    purpose: "Current claims-to-vote-escrow locker",
     status: "Production",
+  },
+  {
+    address: "0x83F84C5d431a986a1AB209F902B954b5D3550d8c",
+    label: "ClaimLocker V2 (Legacy)",
+    purpose: "Previous claims-to-vote-escrow locker",
+    status: "Historical",
   },
   {
     address: "0x2FD3BE762Eb9D8Ee293DD923D8809DBd3d653Dd7",
@@ -63,10 +87,16 @@ const ALL_CONTRACTS: {
     status: "Historical",
   },
   {
-    address: "0x9F34a8561f97E388D4A1589c1D046C61d6915323",
+    address: "0x740A66fc9201962f39802d924D4C2347cdf823A1",
     label: "MultiClaim",
-    purpose: "Batches multiple game claims",
+    purpose: "Current batch-claim helper",
     status: "Production",
+  },
+  {
+    address: "0x9F34a8561f97E388D4A1589c1D046C61d6915323",
+    label: "MultiClaim (Legacy)",
+    purpose: "Previous batch-claim helper",
+    status: "Historical",
   },
   {
     address: "0x32783F1301147F6fB45C049A9546819655F81415",
